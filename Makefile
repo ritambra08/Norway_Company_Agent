@@ -16,4 +16,4 @@ validate:
 
 # Draw $(N) random org numbers from the official bulk file (one download)
 sample:
-	python3 scripts/sample_orgnrs.py --n $(N) > $(INPUT)
+	python3 scripts/sample_orgnrs.py --n $(N) --out $(INPUT)

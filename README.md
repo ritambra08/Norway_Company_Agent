@@ -5,7 +5,7 @@ Give it Norwegian organisation numbers; it returns one evidence-linked profile p
 ## Run it
 
 ```bash
-python3 scripts/sample_orgnrs.py --n 1000 > companies.txt     # one-off: 1,000 random org numbers
+python3 scripts/sample_orgnrs.py --n 1000 --out companies.txt   # one-off: 1,000 random org numbers
 ./run.sh companies.txt out                                     # the one command
 # equivalent: python3 -m norway_agent run --input companies.txt --out out
 python3 -m norway_agent validate --out out                     # self-check (replays raw snapshots)
