@@ -1,0 +1,19 @@
+{
+  "agent_version": "0.1.0",
+  "started_at": "2026-10-17T11:40:45Z",
+  "finished_at": "2026-10-17T11:50:49Z",
+  "elapsed_seconds": 604.1,
+  "outbound_requests": 3613,
+  "network_errors_retried": 0,
+  "companies_requested": 1000,
+  "by_status": {
+    "ok": 1000
+  },
+  "declared_external_api_cost_usd": 0.0,
+  "llm": null,
+  "limits": {
+    "max_requests": 6000,
+    "deadline_seconds": 2400.0,
+    "max_requests_per_company": 8
+  }
+}
