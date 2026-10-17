@@ -52,7 +52,7 @@ class HappyPath(unittest.TestCase):
         f = facts(p)
         self.assertEqual(f["name"], "TESTSELSKAP AS")
         self.assertEqual(f["employees"], 12)
-        self.assertEqual(f["revenue"], {"amount": 1_500_000, "currency": "NOK",
+        self.assertEqual(f["revenue"], {"amount": 1_500_000, "currency": "NOK", "accounts_type": "SELSKAP",
                                         "period_start": "2024-01-01", "period_end": "2024-12-31"})
         self.assertEqual(f["establishments"]["total"], 1)
         self.assertEqual([r["role_code"] for r in f["roles"]], ["LEDE", "REVI"])  # resigned member excluded
@@ -90,7 +90,7 @@ class WrongCompanyGuards(unittest.TestCase):
     def test_foreign_accounts_and_establishments_are_discarded(self):
         s, cfg, http, store, tmp = make()
         s.standard()
-        s.add(f"{BASE}/regnskapsregisteret/regnskap?{urlencode({'orgNummer': ORG})}",
+        s.add(f"{BASE}/regnskapsregisteret/regnskap/{ORG}",
               [regnskap_entry(OTHER, revenue=777), regnskap_entry(ORG)])
         q = urlencode({"overordnetEnhet": ORG, "size": 100})
         s.add(f"{BASE}/enhetsregisteret/api/underenheter?{q}", sub_list(ORG, extra_foreign=True))
@@ -104,7 +104,7 @@ class WrongCompanyGuards(unittest.TestCase):
     def test_conflicting_accounts_for_same_period_publish_no_financials(self):
         s, cfg, http, store, tmp = make()
         s.standard()
-        s.add(f"{BASE}/regnskapsregisteret/regnskap?{urlencode({'orgNummer': ORG})}",
+        s.add(f"{BASE}/regnskapsregisteret/regnskap/{ORG}",
               [regnskap_entry(ORG, revenue=1), regnskap_entry(ORG, revenue=2)])
         p = build_profile(http, cfg, store, ORG)
         self.assertNotIn("revenue", facts(p))
@@ -115,13 +115,53 @@ class WrongCompanyGuards(unittest.TestCase):
     def test_latest_period_is_chosen_and_missing_currency_blocks_figures(self):
         s, cfg, http, store, tmp = make()
         s.standard()
-        url = f"{BASE}/regnskapsregisteret/regnskap?{urlencode({'orgNummer': ORG})}"
+        url = f"{BASE}/regnskapsregisteret/regnskap/{ORG}"
         s.add(url, [regnskap_entry(ORG, til="2023-12-31", revenue=5), regnskap_entry(ORG, til="2024-12-31", revenue=6)])
         self.assertEqual(facts(build_profile(http, cfg, store, ORG))["revenue"]["amount"], 6)
         nocur = regnskap_entry(ORG)
         nocur["valuta"] = None
         s.add(url, [nocur])
         self.assertNotIn("revenue", facts(build_profile(http, cfg, store, ORG)))
+        tmp.cleanup()
+
+
+class LiveFindings(unittest.TestCase):
+    """Behaviours seen on the real API during the first live run."""
+
+    def _acc(self, s, entries):
+        s.add(f"{BASE}/regnskapsregisteret/regnskap/{ORG}", entries)
+
+    def test_company_accounts_preferred_over_group_for_same_period(self):
+        s, cfg, http, store, tmp = make()
+        s.standard()
+        self._acc(s, [regnskap_entry(ORG, revenue=900, typ="KONSERN"), regnskap_entry(ORG, revenue=100, typ="SELSKAP")])
+        p = build_profile(http, cfg, store, ORG)
+        self.assertEqual(facts(p)["revenue"]["amount"], 100)
+        self.assertEqual(facts(p)["revenue"]["accounts_type"], "SELSKAP")
+        self.assertTrue(any("another type" in n for n in p["notes"]))
+        tmp.cleanup()
+
+    def test_group_only_accounts_are_published_and_labelled(self):
+        s, cfg, http, store, tmp = make()
+        s.standard()
+        self._acc(s, [regnskap_entry(ORG, revenue=900, currency="USD", typ="KONSERN")])
+        p = build_profile(http, cfg, store, ORG)
+        v = facts(p)["revenue"]
+        self.assertEqual((v["amount"], v["currency"], v["accounts_type"]), (900, "USD", "KONSERN"))
+        self.assertIn("consolidated", p["summary"])
+        tmp.cleanup()
+
+    def test_bank_style_http_500_is_not_retried_and_profile_still_ok(self):
+        s, cfg, http, store, tmp = make()
+        s.standard()
+        s.add(f"{BASE}/regnskapsregisteret/regnskap/{ORG}",
+              {"status": "500", "message": "Regnskapet inneholder en oppstillingsplan som ikke er stottet (BANK)"}, status=500)
+        p = build_profile(http, cfg, store, ORG)
+        self.assertEqual(p["status"], "ok")
+        self.assertEqual(sum("regnskap" in c for c in s.calls), 1)  # exactly one attempt
+        reason = next(m["reason"] for m in p["not_found"] if m["key"] == "financials")
+        self.assertIn("BANK", reason)
+        self.assertIn("name", facts(p))
         tmp.cleanup()
 
 
@@ -248,7 +288,7 @@ class Updates(unittest.TestCase):
         s2.standard()
         e = regnskap_entry(ORG)
         e["eiendeler"]["omloepsmidler"] = {"sumOmloepsmidler": 300_000}
-        s2.add(f"{BASE}/regnskapsregisteret/regnskap?{urlencode({'orgNummer': ORG})}", [e])
+        s2.add(f"{BASE}/regnskapsregisteret/regnskap/{ORG}", [e])
         self.assertEqual(facts(build_profile(http2, cfg2, store2, ORG))["current_assets"]["amount"], 300_000)
         tmp.cleanup()
         tmp2.cleanup()

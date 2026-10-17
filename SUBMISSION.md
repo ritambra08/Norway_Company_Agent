@@ -9,4 +9,4 @@
 | Model/API details | No LLM. Public APIs only: `data.brreg.no/enhetsregisteret/api` and `data.brreg.no/regnskapsregisteret/regnskap` (free, keyless, NLOD licence). |
 | Expected run costs | External API: **$0.00**. Daily test of 100 companies: ≤ ~500 requests, 1–2 minutes. Infrastructure: any machine with Python ≥ 3.10. |
 
-Before submitting: run 5–10 real companies first and read `out/raw/` and `out/profiles/` (the build was verified against synthetic fixtures only).
+Before submitting: run 5–10 real companies first and read `out/raw/` and `out/profiles/` (registry and accounts calls were confirmed live on three large companies; everything else on fixtures).

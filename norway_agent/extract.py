@@ -294,11 +294,18 @@ def _as_list(body) -> list:
     return []
 
 
+TYPE_RANK = {"SELSKAP": 0, "KONSERN": 1}  # company's own accounts before consolidated group accounts
+
+
 def _financials(b: _Builder, snap: Snapshot, last_year: str | None) -> None:
     if snap.status != 200:
-        b.miss("financials", "No annual accounts were returned by the open Regnskapsregisteret API "
-                             f"(HTTP {snap.status}). The API is a temporary R&D service and covers only "
-                             "companies using the ordinary accounts layout.")
+        msg = snap.body.get("message") if isinstance(snap.body, dict) else None
+        if snap.status == 500 and isinstance(msg, str):
+            reason = f"The open accounts API cannot serve this entity's accounts ({msg})."
+        else:
+            reason = ("No annual accounts were returned by the open Regnskapsregisteret API "
+                      f"(HTTP {snap.status}); it covers only companies using the ordinary accounts layout.")
+        b.miss("financials", reason)
         return
     items = _as_list(snap.body)
     mine = [(i, e) for i, e in enumerate(items)
@@ -313,11 +320,16 @@ def _financials(b: _Builder, snap: Snapshot, last_year: str | None) -> None:
     def period(e):
         return e.get("regnskapsperiode") or {}
 
+    def rank(e):
+        return TYPE_RANK.get(e.get("regnskapstype"), 2)
+
     latest = max((period(e).get("tilDato") or "") for _, e in mine)
     if not latest:
         b.miss("financials", "Accounts records carry no period end date, so the latest cannot be identified.")
         return
-    group = [(i, e) for i, e in mine if (period(e).get("tilDato") or "") == latest]
+    in_period = [(i, e) for i, e in mine if (period(e).get("tilDato") or "") == latest]
+    best = min(rank(e) for _, e in in_period)
+    group = [(i, e) for i, e in in_period if rank(e) == best]
 
     def sig(e):
         return (e.get("valuta"), period(e).get("fraDato"), tuple(_dig(e, p) for _, _, p in FIN_FIELDS))
@@ -328,23 +340,30 @@ def _financials(b: _Builder, snap: Snapshot, last_year: str | None) -> None:
         return
 
     idx, e = group[0]
+    atype = e.get("regnskapstype")
     currency = e.get("valuta")
     if not currency:
         b.miss("financials", "The accounts record states no currency; figures were not published.")
         return
+    if len(in_period) > len(group):
+        b.notes.append(f"Accounts of another type were also filed for the period ending {latest}; "
+                       f"the {atype} accounts were published.")
     if last_year and latest[:4] < last_year:
         b.notes.append(f"Enhetsregisteret says accounts for {last_year} were submitted, but the open "
                        f"Regnskapsregisteret data only has the period ending {latest}.")
 
+    what = ("Consolidated group figures (not the company alone). " if atype == "KONSERN" else "")
     produced = False
     for key, label, path in FIN_FIELDS:
         v = _dig(e, path)
         if _num(v):
-            b.add(key, label,
-                  {"amount": v, "currency": currency,
-                   "period_start": period(e).get("fraDato"), "period_end": latest},
-                  "regnskap", snap, [f"[{idx}].{path}", f"[{idx}].valuta", f"[{idx}].regnskapsperiode"],
-                  "Copied unchanged from the filed annual accounts; no conversion or rounding.",
+            value = {"amount": v, "currency": currency,
+                     "period_start": period(e).get("fraDato"), "period_end": latest}
+            if atype:
+                value["accounts_type"] = atype
+            b.add(key, label, value, "regnskap", snap,
+                  [f"[{idx}].{path}", f"[{idx}].valuta", f"[{idx}].regnskapsperiode"],
+                  what + "Copied unchanged from the filed annual accounts; no conversion or rounding.",
                   name=REG, source_date=latest)
             produced = True
         else:
@@ -353,7 +372,7 @@ def _financials(b: _Builder, snap: Snapshot, last_year: str | None) -> None:
         rules = _dig(e, "regnkapsprinsipper.regnskapsregler")  # spelled this way in the official spec
         b.add("latest_accounts_period", "Latest accounts in open data",
               {"period_start": period(e).get("fraDato"), "period_end": latest, "currency": currency,
-               "accounting_rules": rules, "liquidation_accounts": e.get("avviklingsregnskap")},
+               "accounts_type": atype, "accounting_rules": rules, "liquidation_accounts": e.get("avviklingsregnskap")},
               "regnskap", snap, [f"[{idx}].regnskapsperiode", f"[{idx}].valuta"],
               name=REG, source_date=latest)
 

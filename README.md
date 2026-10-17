@@ -23,7 +23,7 @@ Output (`out/`): `profiles.jsonl` (one profile per line, input order), `profiles
 | Enhetsregisteret `/enheter/{orgnr}` (or `/underenheter/{orgnr}`) | name, organisation form, registration/founding dates, status flags, NACE codes, sector, employees, addresses, website/email/phone, VAT & other register flags, purpose/activity text, parent unit |
 | `/enheter/{orgnr}/roller` | current role holders (names + role only; birth dates are never copied) |
 | `/underenheter?overordnetEnhet=` | establishments with their own org numbers |
-| Regnskapsregisteret `/regnskap?orgNummer=` | latest period: revenue, operating result, result before tax, net result, operating and personnel costs, equity, liabilities, total/current/fixed assets, currency, period |
+| Regnskapsregisteret `/regnskap/{orgnr}` (confirmed live) | latest period: revenue, operating result, result before tax, net result, operating and personnel costs, equity, liabilities, total/current/fixed assets, currency, period |
 
 Each fact: `value`, `subject_orgnr`, `source.url` (exact API call), `record_url` (human page), `retrieved_at`, `source_date` (period end for accounts), `last_modified`, `response_sha256`, `raw_file`, `json_paths`, plus `explanation`, `first_seen_at`, `last_verified_at`, `changed_at`. Gaps go in `not_found` with a reason. `summary` is a plain-language paragraph written only from the verified facts. `change_log` records every added/changed/removed fact between runs.
 
@@ -48,9 +48,9 @@ Hitting a limit yields `partial`/`skipped_budget` profiles, never a crash. The 1
 
 ## Known caveats
 
-- Not yet run against the live API (the authoring sandbox could not reach brreg.no). Tests use synthetic fixtures. **First live run: do 5–10 companies and inspect `out/raw/` before the full run.**
+- Registry and accounts calls were checked live on three large companies; tests otherwise use synthetic fixtures. Always inspect `out/raw/` on a small run before the full run.
 - The Enhetsregisteret field names come from the public data model, not a fetched spec (the docs page blocked automated fetching). If a field is missing in `raw/`, adjust `extract.py`.
-- The Regnskapsregisteret open API is documented as a temporary R&D service that can be withdrawn and covers only companies using the ordinary accounts layout; the lookup parameter (`orgNummer`) follows the published spec. If it returns nothing, profiles degrade to registry facts with a clear `not_found` reason.
+- The Regnskapsregisteret open API is documented as a temporary R&D service that can be withdrawn. Confirmed live: listed groups return consolidated (`KONSERN`) accounts, which are published with `accounts_type` and labelled in the summary; the company's own (`SELSKAP`) accounts are preferred when both exist for a period; banks return HTTP 500 "not supported" and get a clear `not_found` reason (not retried, so no wasted requests).
 - Phone/email/names are published in the open register; for sole proprietorships (ENK) they may be personal data. Use `--no-roles` or filter before sharing if that matters to you.
 
 ## Layout

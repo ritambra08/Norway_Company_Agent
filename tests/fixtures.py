@@ -92,9 +92,9 @@ def sub_list(parent=ORG, extra_foreign=False):
     return {"_embedded": {"underenheter": items}, "page": {"totalElements": len(items)}}
 
 
-def regnskap_entry(orgnr=ORG, til="2024-12-31", revenue=1_500_000, net=120_000, currency="NOK"):
+def regnskap_entry(orgnr=ORG, til="2024-12-31", revenue=1_500_000, net=120_000, currency="NOK", typ="SELSKAP"):
     return {
-        "id": "x", "virksomhet": {"organisasjonsnummer": orgnr, "organisasjonsform": "AS", "morselskap": False},
+        "id": "x", "regnskapstype": typ, "virksomhet": {"organisasjonsnummer": orgnr, "organisasjonsform": "AS", "morselskap": False},
         "regnskapsperiode": {"fraDato": til[:4] + "-01-01", "tilDato": til},
         "valuta": currency, "avviklingsregnskap": False, "oppstillingsplan": "store",
         "regnkapsprinsipper": {"smaaForetak": True, "regnskapsregler": "regnskapslovenAlminneligRegler"},
@@ -123,7 +123,7 @@ class FakeServer:
         q = urlencode({"overordnetEnhet": orgnr, "size": 100})
         self.add(f"{BASE}/enhetsregisteret/api/underenheter?{q}", sub_list(orgnr))
         if with_accounts:
-            self.add(f"{BASE}/regnskapsregisteret/regnskap?{urlencode({'orgNummer': orgnr})}",
+            self.add(f"{BASE}/regnskapsregisteret/regnskap/{orgnr}",
                      [regnskap_entry(orgnr)])
 
     def opener(self, url, headers, timeout):

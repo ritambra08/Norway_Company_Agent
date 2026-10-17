@@ -8,7 +8,7 @@ from .models import Fact
 def _money(v: dict) -> str:
     amt = v["amount"]
     s = f"{amt:,.0f}".replace(",", " ")
-    return f"{v['currency']} {s}"
+    return f"{v['currency']} {s}" + (" (consolidated group)" if v.get("accounts_type") == "KONSERN" else "")
 
 
 def summarize(orgnr: str, status: str, entity_type: str | None, facts: list[Fact], notes: list[str]) -> str:

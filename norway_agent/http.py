@@ -29,6 +29,15 @@ class HttpError(RuntimeError):
     """Raised when a request keeps failing after retries."""
 
 
+def _is_app_error(raw: bytes) -> bool:
+    """A 500 whose JSON body carries a 'message' is a deterministic refusal, not a blip."""
+    try:
+        body = json.loads(raw)
+    except ValueError:
+        return False
+    return isinstance(body, dict) and isinstance(body.get("message"), str)
+
+
 def utcnow_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
@@ -119,7 +128,7 @@ class Http:
                 self._sleep(self._backoff(attempt, None))
                 continue
             hdrs = {k.lower(): v for k, v in hdrs.items()}
-            if status in RETRY_STATUS:
+            if status in RETRY_STATUS and not (status == 500 and _is_app_error(raw)):
                 last = f"HTTP {status}"
                 self.errors += 1
                 self._sleep(self._backoff(attempt, hdrs.get("retry-after")))

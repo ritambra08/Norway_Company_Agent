@@ -44,5 +44,4 @@ def collect(http: Http, cfg: Config, orgnr: str, snaps: dict[str, Snapshot]) -> 
         )
     form = ((body.get("organisasjonsform") or {}).get("kode")) or ""
     if cfg.include_financials and form not in NO_ACCOUNTS_FORMS:
-        q = urlencode({"orgNummer": orgnr})
-        snaps["regnskap"] = http.get_json(f"{base}/regnskapsregisteret/regnskap?{q}", scope)
+        snaps["regnskap"] = http.get_json(f"{base}/regnskapsregisteret/regnskap/{orgnr}", scope)
