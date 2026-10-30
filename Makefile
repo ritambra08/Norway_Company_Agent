@@ -1,19 +1,19 @@
-INPUT ?= companies.txt
+BATCH ?= examples/sample-batch.jsonl
 OUT ?= out
-N ?= 1000
+N ?= 100
 
-.PHONY: run test validate sample
+.PHONY: run test validate smoke
 
-# THE one command: build profiles for every org number in $(INPUT)
+# The one evaluator command (same as ./run.sh $(BATCH) $(OUT))
 run:
-	python3 -m norway_agent run --input $(INPUT) --out $(OUT)
+	./run.sh $(BATCH) $(OUT)
 
 test:
 	python3 -I -m unittest discover -s . -t . -p "test_*.py"
 
 validate:
-	python3 -m norway_agent validate --out $(OUT)
+	python3 -m norway_agent validate --output $(OUT)/envelopes.jsonl --organisations $(BATCH)
 
-# Draw $(N) random org numbers from the official bulk file (one download)
-sample:
-	python3 scripts/sample_orgnrs.py --n $(N) --out $(INPUT)
+# 100-company smoke test on the official universe; results land in submission/
+smoke:
+	N=$(N) ./scripts/smoke_test.sh

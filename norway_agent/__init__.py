@@ -1,3 +1,4 @@
-"""Norwegian company profile agent (Brønnøysund open data)."""
+"""Signalpost company agent: evidence-linked Norwegian company profiles."""
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
+PARSER_VERSION = "np-0.2.0"

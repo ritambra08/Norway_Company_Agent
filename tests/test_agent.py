@@ -1,318 +1,316 @@
+from __future__ import annotations
+
+import gzip
 import json
 import tempfile
 import unittest
 from pathlib import Path
-from urllib.parse import urlencode
+from unittest import mock
 
-from norway_agent import orgnr as om
-from norway_agent.build import build_profile
+from norway_agent import web
 from norway_agent.config import Config
-from norway_agent.http import Http
-from norway_agent.inputs import read_orgnrs
-from norway_agent.store import Store
-from norway_agent.validate import validate_profile
-
-from .fixtures import (BASE, ORG, OTHER, PARENT, SUB, FakeServer, enhet, regnskap_entry,
-                       sub_list, underenhet)
+from norway_agent.inputs import read_batch
+from norway_agent.names import domain_candidates, match_key, page_names_company
+from norway_agent.pipeline import run
+from norway_agent.validate import validate
+from tests import fixtures as fx
 
 
-def make(cfg=None, server=None):
-    server = server or FakeServer()
-    cfg = cfg or Config()
-    http = Http(cfg, opener=server.opener, sleep=lambda s: None)
-    tmp = tempfile.TemporaryDirectory()
-    return server, cfg, http, Store(Path(tmp.name)), tmp
+def fake_resolves(host, timeout=3.0):
+    return host in ("nordlysholding.no", "www.nordlysholding.no")
 
 
-def facts(p):
-    return {f["key"]: f["value"] for f in p["facts"]}
+class Clock:
+    def __init__(self):
+        self.t = 0.0
+
+    def __call__(self):
+        return self.t
+
+    def sleep(self, s):
+        self.t += max(0.0, s)
 
 
-class OrgNumber(unittest.TestCase):
-    def test_known_valid_and_invalid(self):
-        self.assertTrue(om.is_valid("923609016"))
-        self.assertFalse(om.is_valid("923609017"))
-        self.assertFalse(om.is_valid("12345"))
-
-    def test_normalize(self):
-        self.assertEqual(om.normalize("NO 923 609 016 MVA"), "923609016")
-        self.assertIsNone(om.normalize("12-34"))
-
-    def test_fixture_numbers_valid(self):
-        for o in (ORG, OTHER, SUB, PARENT):
-            self.assertTrue(om.is_valid(o), o)
+def do_run(tmp: Path, net=None, cfg=None, previous=None, run_id="t1"):
+    net = net or fx.FakeInternet()
+    batch = tmp / "batch.jsonl"
+    batch.write_text("\n".join(json.dumps(x) for x in fx.batch_lines()) + "\n", encoding="utf-8")
+    clock = Clock()
+    with mock.patch.object(web, "_resolves", fake_resolves):
+        rep = run(str(batch), tmp / "out" / "envelopes.jsonl", tmp / "out" / "run-report.json", run_id,
+                  cfg or Config(), previous=previous, opener=net, clock=clock, sleep=clock.sleep,
+                  expected_count=8)
+    envs = {e["organisation_number"]: e for e in map(json.loads, (tmp / "out" / "envelopes.jsonl").read_text().splitlines())}
+    return rep, envs, net
 
 
-class HappyPath(unittest.TestCase):
-    def test_full_profile_with_evidence_and_replay(self):
-        s, cfg, http, store, tmp = make()
-        s.standard()
-        p = build_profile(http, cfg, store, ORG)
-        self.assertEqual(p["status"], "ok")
-        f = facts(p)
-        self.assertEqual(f["name"], "TESTSELSKAP AS")
-        self.assertEqual(f["employees"], 12)
-        self.assertEqual(f["revenue"], {"amount": 1_500_000, "currency": "NOK", "accounts_type": "SELSKAP",
-                                        "period_start": "2024-01-01", "period_end": "2024-12-31"})
-        self.assertEqual(f["establishments"]["total"], 1)
-        self.assertEqual([r["role_code"] for r in f["roles"]], ["LEDE", "REVI"])  # resigned member excluded
-        self.assertNotIn("1970", json.dumps(p))  # birth dates never copied
-        for fact in p["facts"]:
-            self.assertEqual(fact["subject_orgnr"], ORG)
-            self.assertTrue(fact["source"]["url"].startswith("https://data.brreg.no/"))
-            self.assertTrue(fact["source"]["retrieved_at"])
-        self.assertEqual(validate_profile(p, store), [])  # replay from raw matches
-        self.assertEqual(len(s.calls), 4)
-        tmp.cleanup()
-
-    def test_tampered_value_is_caught_by_replay(self):
-        s, cfg, http, store, tmp = make()
-        s.standard()
-        p = build_profile(http, cfg, store, ORG)
-        for fact in p["facts"]:
-            if fact["key"] == "revenue":
-                fact["value"]["amount"] = 9_999_999
-        problems = validate_profile(p, store)
-        self.assertTrue(any("revenue" in x for x in problems), problems)
-        tmp.cleanup()
+def claim(env, field):
+    return next(c for c in env["claims"] if c["field"] == field)
 
 
-class WrongCompanyGuards(unittest.TestCase):
-    def test_enhet_response_for_other_company_publishes_nothing(self):
-        s, cfg, http, store, tmp = make()
-        s.add(f"{BASE}/enhetsregisteret/api/enheter/{ORG}", enhet(OTHER))
-        p = build_profile(http, cfg, store, ORG)
-        self.assertEqual(p["status"], "error")
-        self.assertEqual(p["facts"], [])
-        self.assertEqual(len(s.calls), 1)  # nothing further fetched on a mismatch
-        tmp.cleanup()
+class ContractTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = Path(tempfile.mkdtemp())
+        cls.rep, cls.envs, cls.net = do_run(cls.tmp)
 
-    def test_foreign_accounts_and_establishments_are_discarded(self):
-        s, cfg, http, store, tmp = make()
-        s.standard()
-        s.add(f"{BASE}/regnskapsregisteret/regnskap/{ORG}",
-              [regnskap_entry(OTHER, revenue=777), regnskap_entry(ORG)])
-        q = urlencode({"overordnetEnhet": ORG, "size": 100})
-        s.add(f"{BASE}/enhetsregisteret/api/underenheter?{q}", sub_list(ORG, extra_foreign=True))
-        p = build_profile(http, cfg, store, ORG)
-        f = facts(p)
-        self.assertEqual(f["revenue"]["amount"], 1_500_000)
-        self.assertEqual([i["orgnr"] for i in f["establishments"]["items"]], [SUB])
-        self.assertEqual(len([n for n in p["notes"] if "Discarded" in n]), 2)
-        tmp.cleanup()
+    def test_one_terminal_envelope_per_input(self):
+        self.assertEqual(len(self.envs), 8)  # 7 + invalid; duplicate dropped
+        self.assertTrue(self.rep["one_terminal_envelope_per_input"])
+        self.assertEqual(self.rep["input"]["duplicates_dropped"], 1)
+        for e in self.envs.values():
+            self.assertIn(e["status"], ("available", "not_available", "blocked", "not_applicable", "ambiguous", "failed"))
+            for k in ("run", "claims", "evidence", "changes", "errors", "operations"):
+                self.assertIn(k, e)
+            self.assertEqual(e["operations"]["third_party_cost_usd"], 0)
 
-    def test_conflicting_accounts_for_same_period_publish_no_financials(self):
-        s, cfg, http, store, tmp = make()
-        s.standard()
-        s.add(f"{BASE}/regnskapsregisteret/regnskap/{ORG}",
-              [regnskap_entry(ORG, revenue=1), regnskap_entry(ORG, revenue=2)])
-        p = build_profile(http, cfg, store, ORG)
-        self.assertNotIn("revenue", facts(p))
-        self.assertTrue(any(m["key"] == "financials" and "conflicting" in m["reason"].lower()
-                            for m in p["not_found"]))
-        tmp.cleanup()
+    def test_invalid_and_unknown_numbers_are_explicit(self):
+        self.assertEqual(self.envs["123456789"]["status"], "not_available")
+        self.assertIn("not a valid", self.envs["123456789"]["errors"][0]["message"])
+        self.assertEqual(self.envs[fx.NF]["status"], "not_available")
 
-    def test_latest_period_is_chosen_and_missing_currency_blocks_figures(self):
-        s, cfg, http, store, tmp = make()
-        s.standard()
-        url = f"{BASE}/regnskapsregisteret/regnskap/{ORG}"
-        s.add(url, [regnskap_entry(ORG, til="2023-12-31", revenue=5), regnskap_entry(ORG, til="2024-12-31", revenue=6)])
-        self.assertEqual(facts(build_profile(http, cfg, store, ORG))["revenue"]["amount"], 6)
-        nocur = regnskap_entry(ORG)
-        nocur["valuta"] = None
-        s.add(url, [nocur])
-        self.assertNotIn("revenue", facts(build_profile(http, cfg, store, ORG)))
-        tmp.cleanup()
+    def test_every_non_available_claim_has_a_reason(self):
+        for e in self.envs.values():
+            for c in e["claims"]:
+                if c["availability"] != "available":
+                    self.assertTrue(c.get("reason"), (e["organisation_number"], c["field"]))
+                else:
+                    self.assertTrue(c["evidence_ids"], (e["organisation_number"], c["field"]))
 
+    def test_validate_replays_every_span(self):
+        n, problems, stats = validate(self.tmp / "out" / "envelopes.jsonl", str(self.tmp / "batch.jsonl"))
+        self.assertEqual(problems, [])
+        self.assertGreater(stats["spans_replayed"], 100)
 
-class LiveFindings(unittest.TestCase):
-    """Behaviours seen on the real API during the first live run."""
+    def test_financials_verbatim_with_history_and_change(self):
+        a = self.envs[fx.A]
+        rev = claim(a, "revenue")
+        self.assertEqual(rev["value"], {"amount": 15000000.0, "currency": "NOK", "period_start": "2025-01-01",
+                                        "period_end": "2025-12-31", "accounts_type": "SELSKAP"})
+        self.assertEqual(rev["reporting_period"], {"start": "2025-01-01", "end": "2025-12-31"})
+        hist = claim(a, "annual_accounts_history")["value"]
+        self.assertEqual([h["period_end"] for h in hist], ["2025-12-31", "2024-12-31", "2023-12-31"])
+        ch = claim(a, "revenue_change")["value"]
+        self.assertEqual(ch["change_pct"], 25.0)
+        self.assertTrue(claim(a, "revenue_change")["derived_from"])
 
-    def _acc(self, s, entries):
-        s.add(f"{BASE}/regnskapsregisteret/regnskap/{ORG}", entries)
+    def test_accounts_refusal_and_missing_are_not_zero(self):
+        g = self.envs[fx.G]
+        self.assertEqual(claim(g, "revenue")["availability"], "not_available")
+        self.assertIn("cannot serve", claim(g, "revenue")["reason"])
+        self.assertIsNone(claim(g, "revenue")["value"])
+        e = self.envs[fx.E]
+        self.assertEqual(claim(e, "revenue")["availability"], "not_available")
+        self.assertEqual(claim(e, "registered_employees")["value"], {"range": "0-4"})
 
-    def test_company_accounts_preferred_over_group_for_same_period(self):
-        s, cfg, http, store, tmp = make()
-        s.standard()
-        self._acc(s, [regnskap_entry(ORG, revenue=900, typ="KONSERN"), regnskap_entry(ORG, revenue=100, typ="SELSKAP")])
-        p = build_profile(http, cfg, store, ORG)
-        self.assertEqual(facts(p)["revenue"]["amount"], 100)
-        self.assertEqual(facts(p)["revenue"]["accounts_type"], "SELSKAP")
-        self.assertTrue(any("another type" in n for n in p["notes"]))
-        tmp.cleanup()
+    def test_people_current_only_and_no_birth_dates(self):
+        a = self.envs[fx.A]
+        names = [r["name"] for r in claim(a, "leadership")["value"]]
+        self.assertIn("Ola Hansen", names)
+        self.assertNotIn("Gammel Medlem", names)
+        self.assertEqual(claim(a, "chief_executive")["value"]["name"], "Ola Hansen")
+        self.assertEqual(claim(a, "auditor")["value"]["holder_type"], "organisation")
+        blob = json.dumps(self.envs, ensure_ascii=False)
+        self.assertNotIn("1975-05-17", blob)
+        self.assertNotIn("fodselsdato", blob)
+        self.assertNotIn("Hemmelig Kontakt", blob)  # NAV contact persons never copied
+        self.assertEqual(claim(self.envs[fx.E], "chief_executive")["value"]["role_code"], "INNH")
 
-    def test_group_only_accounts_are_published_and_labelled(self):
-        s, cfg, http, store, tmp = make()
-        s.standard()
-        self._acc(s, [regnskap_entry(ORG, revenue=900, currency="USD", typ="KONSERN")])
-        p = build_profile(http, cfg, store, ORG)
-        v = facts(p)["revenue"]
-        self.assertEqual((v["amount"], v["currency"], v["accounts_type"]), (900, "USD", "KONSERN"))
-        self.assertIn("consolidated", p["summary"])
-        tmp.cleanup()
+    def test_workplaces_do_not_leak_foreign_establishments(self):
+        wp = claim(self.envs[fx.A], "registered_workplaces")["value"]
+        self.assertEqual({i["orgnr"] for i in wp["items"]}, {fx.SUB_A1, fx.SUB_A2})
 
-    def test_bank_style_http_500_is_not_retried_and_profile_still_ok(self):
-        s, cfg, http, store, tmp = make()
-        s.standard()
-        s.add(f"{BASE}/regnskapsregisteret/regnskap/{ORG}",
-              {"status": "500", "message": "Regnskapet inneholder en oppstillingsplan som ikke er stottet (BANK)"}, status=500)
-        p = build_profile(http, cfg, store, ORG)
-        self.assertEqual(p["status"], "ok")
-        self.assertEqual(sum("regnskap" in c for c in s.calls), 1)  # exactly one attempt
-        reason = next(m["reason"] for m in p["not_found"] if m["key"] == "financials")
-        self.assertIn("BANK", reason)
-        self.assertIn("name", facts(p))
-        tmp.cleanup()
+    def test_website_verified_by_org_number(self):
+        a = self.envs[fx.A]
+        w = claim(a, "official_website")
+        self.assertEqual(w["availability"], "available")
+        self.assertEqual(w["value"]["verification"], "org_number_on_site")
+        self.assertEqual(w["value"]["url"], "https://www.fjordtech.example/")
+        ev = {e["id"]: e for e in a["evidence"]}
+        self.assertTrue(any(fx.A[:3] in ev[i]["claim_span"] for i in w["evidence_ids"]))
+        self.assertTrue(any("redirect_chain" in a["sources"][ev[i]["source_ref"]] for i in w["evidence_ids"]))
+        rec = [ev[i] for i in w["evidence_ids"] if ev[i]["source_class"] == "official_registry"][0]
+        self.assertEqual(rec["source_url"], f"https://data.brreg.no/enhetsregisteret/api/enheter/{fx.A}")
 
+    def test_profiles_exclude_share_links(self):
+        prof = claim(self.envs[fx.A], "social_profiles")["value"]
+        urls = {p["url"] for p in prof}
+        self.assertIn("https://www.linkedin.com/company/fjordtech", urls)
+        self.assertIn("https://www.facebook.com/fjordtech", urls)
+        self.assertIn("https://www.youtube.com/@fjordtech", urls)
+        self.assertFalse(any("sharer" in u or "intent" in u for u in urls))
 
-class EntityKinds(unittest.TestCase):
-    def test_underenhet_never_requests_accounts_and_links_parent(self):
-        s, cfg, http, store, tmp = make()
-        s.add(f"{BASE}/enhetsregisteret/api/underenheter/{SUB}", underenhet())
-        p = build_profile(http, cfg, store, SUB)
-        self.assertEqual(p["entity_type"], "underenhet")
-        self.assertEqual(facts(p)["parent_unit_orgnr"], PARENT)
-        self.assertFalse(any("regnskap" in c for c in s.calls))
-        tmp.cleanup()
+    def test_parent_site_is_ambiguous_not_merged(self):
+        c = self.envs[fx.C]
+        w = claim(c, "official_website")
+        self.assertEqual(w["availability"], "ambiguous")
+        self.assertIn(fx.PARENT_C, w["reason"])
+        self.assertTrue(c["abstentions"])
 
-    def test_deleted_entity(self):
-        s, cfg, http, store, tmp = make()
-        s.add(f"{BASE}/enhetsregisteret/api/enheter/{ORG}",
-              {"organisasjonsnummer": ORG, "navn": "GAMMEL AS", "slettedato": "2022-01-01"}, status=410)
-        p = build_profile(http, cfg, store, ORG)
-        self.assertEqual(p["status"], "deleted")
-        self.assertEqual(facts(p)["deletion_date"], "2022-01-01")
-        tmp.cleanup()
+    def test_guessed_namesake_site_is_discarded(self):
+        b = self.envs[fx.B]
+        self.assertEqual(claim(b, "official_website")["availability"], "not_available")
+        self.assertNotIn("nordlysholding", json.dumps(claim(b, "social_profiles")))
 
-    def test_not_found_and_invalid(self):
-        s, cfg, http, store, tmp = make()
-        self.assertEqual(build_profile(http, cfg, store, ORG)["status"], "not_found")
-        before = len(s.calls)
-        self.assertEqual(build_profile(http, cfg, store, "923609017")["status"], "invalid_orgnr")
-        self.assertEqual(len(s.calls), before)  # invalid numbers cost zero requests
-        tmp.cleanup()
+    def test_robots_block_is_reported(self):
+        self.assertEqual(claim(self.envs[fx.D], "official_website")["availability"], "blocked")
+        self.assertNotIn("https://robotstopp.example/", [u for u in self.net.calls if not u.endswith("robots.txt")])
 
-    def test_unregistered_employees_is_missing_not_zero(self):
-        s, cfg, http, store, tmp = make()
-        s.standard(enh=enhet(antallAnsatte=0, harRegistrertAntallAnsatte=False))
-        p = build_profile(http, cfg, store, ORG)
-        self.assertNotIn("employees", facts(p))
-        self.assertTrue(any(m["key"] == "employees" for m in p["not_found"]))
-        tmp.cleanup()
+    def test_jobs_tied_by_org_number(self):
+        a = self.envs[fx.A]
+        jobs = claim(a, "job_postings")["value"]
+        titles = {j["title"] for j in jobs}
+        self.assertIn("Senior utvikler", titles)               # NAV, employer = company
+        self.assertIn("Konsulent Oslo", titles)                # NAV, employer = registered establishment
+        self.assertNotIn("Snekker", titles)                    # same name, different org number
+        self.assertIn("Backend-utvikler", titles)              # JSON-LD JobPosting on careers page
+        self.assertIn("Product Designer", titles)              # ATS link on careers page
+        self.assertNotIn("Lagerarbeider (vikar)", titles)      # posting for another employer
+        rel = {j["title"]: j.get("relation") for j in jobs}
+        self.assertEqual(rel["Konsulent Oslo"], "establishment")
+        self.assertTrue(claim(a, "hiring_signal")["value"]["hiring"])
 
-    def test_sole_proprietorship_skips_accounts_request(self):
-        s, cfg, http, store, tmp = make()
-        s.standard(enh=enhet(organisasjonsform={"kode": "ENK", "beskrivelse": "Enkeltpersonforetak"}))
-        build_profile(http, cfg, store, ORG)
-        self.assertFalse(any("regnskap" in c for c in s.calls))
-        tmp.cleanup()
+    def test_checked_zero_jobs_differs_from_not_checked(self):
+        b = claim(self.envs[fx.B], "job_postings")
+        self.assertEqual(b["availability"], "not_available")
+        self.assertEqual(b["checked_sources"][0]["status"], "checked")
 
+    def test_activity_is_dated_and_merged(self):
+        a = self.envs[fx.A]
+        acts = claim(a, "public_activity")["value"]
+        kinds = {x["kind"] for x in acts}
+        self.assertTrue({"registry_change", "leadership_update", "website_news", "job_posted", "name_change"} <= kinds)
+        dates = [x["date"] for x in acts]
+        self.assertEqual(dates, sorted(dates, reverse=True))
+        news = [n["title"] for n in claim(a, "website_news")["value"]]
+        self.assertIn("Fjordtech vinner kontrakt med Havbruk Nord", news)
+        self.assertNotIn("Gammel nyhet", news)
+        ev = claim(a, "registry_change_events")["value"]
+        emp = [e for e in ev if any("employee count" in c for c in e["changes"])]
+        self.assertEqual(len(emp), 1)  # monthly headcount refreshes collapsed
+        self.assertTrue(any("annual accounts for 2025 registered" in c for e in ev for c in e["changes"]))
 
-class Budgets(unittest.TestCase):
-    def test_request_budget_gives_partial_not_crash(self):
-        s, cfg, http, store, tmp = make(Config(max_requests=2))
-        s.standard()
-        p = build_profile(http, cfg, store, ORG)
-        self.assertEqual(p["status"], "partial")
-        self.assertIn("name", facts(p))
-        self.assertLessEqual(http.requests, 2)
-        tmp.cleanup()
+    def test_summary_is_grounded(self):
+        s = self.envs[fx.A]["summary"]
+        self.assertIn("FJORDTECH AS", s["text"])
+        self.assertIn("NOK 15.0 million", s["text"])
+        self.assertIn("Hiring", s["text"])
+        self.assertIn("First profile", s["what_changed"])
+        self.assertIn("legal_name", s["based_on_fields"])
 
-    def test_per_company_cap(self):
-        s, cfg, http, store, tmp = make(Config(max_requests_per_company=1))
-        s.standard()
-        self.assertEqual(build_profile(http, cfg, store, ORG)["status"], "partial")
-        self.assertEqual(len(s.calls), 1)
-        tmp.cleanup()
-
-    def test_retries_count_against_budget(self):
-        s, cfg, http, store, tmp = make(Config(max_requests=3))
-        calls = {"n": 0}
-
-        def flaky(url, headers, timeout):
-            calls["n"] += 1
-            return 503, {}, b""
-
-        http._open = flaky
-        p = build_profile(http, cfg, store, ORG)
-        self.assertEqual(calls["n"], 3)
-        self.assertIn(p["status"], ("error", "skipped_budget"))
-        tmp.cleanup()
+    def test_outputs_written(self):
+        out = self.tmp / "out"
+        self.assertTrue((out / "index.html").exists())
+        self.assertIn("FJORDTECH AS", (out / "index.html").read_text())
+        self.assertEqual(len((out / "profiles.jsonl").read_text().splitlines()), 8)
+        rep = json.loads((out / "run-report.json").read_text())
+        self.assertEqual(rep["third_party_cost_usd"], 0.0)
+        self.assertTrue(rep["expected_count_met"])
 
 
-class Updates(unittest.TestCase):
-    def test_change_is_logged_and_unchanged_facts_keep_first_seen(self):
-        s, cfg, http, store, tmp = make()
-        s.standard()
-        first = build_profile(http, cfg, store, ORG)
-        s.standard(enh=enhet(antallAnsatte=20))
-        second = build_profile(http, cfg, store, ORG)
-        self.assertEqual(facts(second)["employees"], 20)
-        ch = [c for c in second["change_log"] if c["key"] == "employees"]
-        self.assertEqual((ch[0]["old"], ch[0]["new"]), (12, 20))
-        name1 = next(f for f in first["facts"] if f["key"] == "name")
-        name2 = next(f for f in second["facts"] if f["key"] == "name")
-        self.assertEqual(name1["first_seen_at"], name2["first_seen_at"])
-        emp2 = next(f for f in second["facts"] if f["key"] == "employees")
-        self.assertIsNotNone(emp2["changed_at"])
-        tmp.cleanup()
+class RefreshTest(unittest.TestCase):
+    def test_rerun_same_snapshot_is_idempotent(self):
+        tmp = Path(tempfile.mkdtemp())
+        _, first, _ = do_run(tmp, run_id="r1")
+        rep, second, _ = do_run(tmp, previous=tmp / "out" / "envelopes.jsonl", run_id="r2")
+        self.assertEqual(rep["changes"]["total"], 0)
+        a = second[fx.A]
+        self.assertEqual(a["refresh"]["previous_run_id"], "r1")
+        self.assertIn("No material changes", a["summary"]["what_changed"])
+        lead = claim(a, "leadership")
+        self.assertLess(lead["first_seen_at"], "9999")  # kept from the first run
+        self.assertEqual([c["field"] for c in first[fx.A]["claims"]], [c["field"] for c in a["claims"]])
 
-    def test_failed_refresh_keeps_good_data_marked_stale(self):
-        s, cfg, http, store, tmp = make()
-        s.standard()
-        build_profile(http, cfg, store, ORG)
-        s.add(f"{BASE}/enhetsregisteret/api/enheter/{ORG}", {}, status=500)
-        p = build_profile(http, cfg, store, ORG)
-        self.assertTrue(p["stale"])
-        self.assertEqual(facts(p)["name"], "TESTSELSKAP AS")
-        tmp.cleanup()
-
-    def test_failed_refresh_does_not_overwrite_saved_evidence(self):
-        s, cfg, http, store, tmp = make()
-        s.standard()
-        p = build_profile(http, cfg, store, ORG)
-        s.add(f"{BASE}/enhetsregisteret/api/enheter/{ORG}", {}, status=500)
-        stale = build_profile(http, cfg, store, ORG)
-        self.assertTrue(stale["stale"])
-        self.assertEqual(store.load_raw(ORG)["enhet"].status, 200)
-        stale["stale"] = False  # replay check applies to fresh data only
-        self.assertEqual(validate_profile(p, store), [])
-        tmp.cleanup()
-
-    def test_more_forms_skip_accounts_and_extra_financials_are_copied(self):
-        s, cfg, http, store, tmp = make()
-        s.standard(enh=enhet(organisasjonsform={"kode": "KOMM", "beskrivelse": "Kommune"}))
-        build_profile(http, cfg, store, ORG)
-        self.assertFalse(any("regnskap" in c for c in s.calls))
-        s2, cfg2, http2, store2, tmp2 = make()
-        s2.standard()
-        e = regnskap_entry(ORG)
-        e["eiendeler"]["omloepsmidler"] = {"sumOmloepsmidler": 300_000}
-        s2.add(f"{BASE}/regnskapsregisteret/regnskap/{ORG}", [e])
-        self.assertEqual(facts(build_profile(http2, cfg2, store2, ORG))["current_assets"]["amount"], 300_000)
-        tmp.cleanup()
-        tmp2.cleanup()
-
-    def test_bankruptcy_status_change_is_recorded(self):
-        s, cfg, http, store, tmp = make()
-        s.standard()
-        build_profile(http, cfg, store, ORG)
-        s.standard(enh=enhet(konkurs=True))
-        p = build_profile(http, cfg, store, ORG)
-        self.assertEqual(facts(p)["operating_status"], "bankrupt")
-        self.assertTrue(any(c["type"] == "changed" and c["key"] == "operating_status" for c in p["change_log"]))
-        tmp.cleanup()
+    def test_change_detection_and_carry_forward(self):
+        tmp = Path(tempfile.mkdtemp())
+        do_run(tmp, run_id="r1")
+        net = fx.FakeInternet()
+        r = fx.roles(fx.A)
+        r["rollegrupper"][1]["roller"].append({"type": {"kode": "MEDL", "beskrivelse": "Styremedlem"},
+                                                "person": {"navn": {"fornavn": "Nina", "etternavn": "Ny"}}})
+        net.roles_override[fx.A] = r
+        net.fail.add("regnskapsregisteret/regnskap/" + fx.A)
+        net.enheter[fx.A]["forretningsadresse"]["adresse"] = ["Strandkaien 9"]
+        _, envs, _ = do_run(tmp, net=net, previous=tmp / "out" / "envelopes.jsonl", run_id="r2")
+        a = envs[fx.A]
+        types = {(c["type"], c["field"]) for c in a["changes"]}
+        self.assertIn(("new_role", "leadership"), types)
+        self.assertIn(("changed_address", "business_address"), types)
+        rev = claim(a, "revenue")
+        self.assertTrue(rev.get("stale"))
+        self.assertEqual(rev["carried_forward_from"], "r1")
+        self.assertEqual(rev["value"]["amount"], 15000000.0)  # failed refresh did not erase good data
+        ev_ids = {e["id"] for e in a["evidence"]}
+        self.assertTrue(set(rev["evidence_ids"]) <= ev_ids)
+        n, problems, _ = validate(tmp / "out" / "envelopes.jsonl")
+        self.assertEqual(problems, [])
 
 
-class InputParsing(unittest.TestCase):
-    def test_text_csv_json(self):
-        with tempfile.TemporaryDirectory() as d:
-            t = Path(d, "a.txt")
-            t.write_text("orgnr\n923 609 016\nNO 984851006 MVA\n923609016\n12345\n")
-            self.assertEqual(read_orgnrs(str(t)), ["923609016", "984851006", "12345"])
-            j = Path(d, "a.json")
-            j.write_text(json.dumps([{"organisasjonsnummer": "923609016"}, "984851006"]))
-            self.assertEqual(read_orgnrs(str(j)), ["923609016", "984851006"])
+class EdgeTest(unittest.TestCase):
+    def test_unreachable_site_is_failed_not_blocked_and_batch_neighbours_do_not_cause_changes(self):
+        tmp = Path(tempfile.mkdtemp())
+        do_run(tmp, run_id="r1")
+        net = fx.FakeInternet()
+        net.fail.add("bergenbygg.example")             # declared site unreachable this time
+        net.enheter[fx.B]["navn"] = "NORDLYS INVEST AS"  # a neighbour in the same batch changes
+        _, envs, _ = do_run(tmp, net=net, previous=tmp / "out" / "envelopes.jsonl", run_id="r2")
+        self.assertEqual(claim(envs[fx.C], "official_website")["availability"], "failed")
+        self.assertEqual([c for c in envs[fx.A]["changes"] if c["field"] != "public_activity"], [])
+        self.assertFalse([c for c in envs[fx.A]["changes"] if c["field"] == "public_activity"])
+
+    def test_starter_kit_entry_point(self):
+        import subprocess, sys
+        r = subprocess.run([sys.executable, "scripts/run_competition_batch.py", "--help"], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0)
+        self.assertIn("--organisations", r.stdout)
+
+
+class BudgetTest(unittest.TestCase):
+    def test_tiny_budget_still_one_envelope_each(self):
+        tmp = Path(tempfile.mkdtemp())
+        cfg = Config(max_requests=3)
+        rep, envs, _ = do_run(tmp, cfg=cfg)
+        self.assertEqual(len(envs), 8)
+        self.assertTrue(rep["one_terminal_envelope_per_input"])
+        n, problems, _ = validate(tmp / "out" / "envelopes.jsonl")
+        self.assertEqual(problems, [])
+
+    def test_budget_scales_with_batch(self):
+        self.assertEqual(Config().resolve(100).max_requests, 2000)
+        self.assertEqual(Config().resolve(1000).max_requests, 18200)
+        with mock.patch.dict("os.environ", {"SIGNALPOST_MAX_REQUESTS": "777"}):
+            self.assertEqual(Config().resolve(1000).max_requests, 777)
+
+
+class UnitTest(unittest.TestCase):
+    def test_inputs(self):
+        tmp = Path(tempfile.mkdtemp())
+        (tmp / "a.txt").write_text("orgnr\n923 609 016\nNO 984851006 MVA\n923609016\nabc\n")
+        ins, dups = read_batch(str(tmp / "a.txt"))
+        self.assertEqual(ins, ["923609016", "984851006", "abc"])
+        self.assertEqual(dups, ["923609016"])
+        (tmp / "b.jsonl.gz").write_bytes(gzip.compress(b'{"orgnr":"923609016","name":"x"}\n{"organisasjonsnummer":984851006}\n'))
+        self.assertEqual(read_batch(str(tmp / "b.jsonl.gz"))[0], ["923609016", "984851006"])
+
+    def test_names(self):
+        self.assertEqual(match_key("Fjordtech AS"), match_key("FJORDTECH AS"))
+        self.assertEqual(match_key("Møller & Sønn AS"), "MØLLER OG SØNN")
+        self.assertTrue(page_names_company("BERGEN BYGG AS", "Velkommen til Bergen Bygg"))
+        self.assertFalse(page_names_company("BERGEN BYGG AS", "Bergen kommune"))
+        self.assertIn("mollersonn.no", domain_candidates("MØLLER SØNN AS"))
+        self.assertEqual(domain_candidates("A AS"), [])
+
+    def test_orgnr_patterns_and_labels(self):
+        raw = f"Org.nr: {fx.fmt(fx.A)} · tel 55 12 34 56 · {fx.NAMESAKE}"
+        self.assertTrue(web.orgnr_pattern(fx.A).search(raw))
+        self.assertEqual(web.labelled_orgnrs(raw), {fx.A})
+        self.assertEqual(web.labelled_orgnrs(f"org.nr. {fx.NAMESAKE} MVA"), {fx.NAMESAKE})
+
+    def test_dates(self):
+        self.assertEqual(web._date("12. mars 2026"), "2026-03-12")
+        self.assertEqual(web._date("Mon, 01 Jan 2018 10:00:00 +0000"), "2018-01-01")
+        self.assertEqual(web._date("03.04.2025"), "2025-04-03")
+        self.assertEqual(web._date("March 5, 2026"), "2026-03-05")
 
 
 if __name__ == "__main__":

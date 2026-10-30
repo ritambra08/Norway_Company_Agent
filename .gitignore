@@ -1,13 +1,8 @@
 __pycache__/
 *.pyc
-out/
 .venv/
 *.egg-info/
-try/
-small/
-small.txt
-daily/
-try/
-small/
-small.txt
-daily/
+out/
+smoke/
+signalpost-universe.jsonl.gz
+*.tmp
