@@ -436,6 +436,32 @@ class DerivedFactsTest(unittest.TestCase):
         self.assertEqual([j["title"] for j in jobs],
                          ["Er du vår nye maskinfører?", "Lagermedarbeider deltid", "Anleggsleder"])
 
+    def test_job_boards_are_never_a_careers_page(self):
+        own = "knmaskin.example"
+        self.assertFalse(web.careers_link_ok(
+            "https://arbeidsplassen.nav.no/stillinger/stilling/acc50110-8b72-4ed5-814b-4c9b6e929338", own))
+        self.assertFalse(web.careers_link_ok("https://www.finn.no/job/ad/428301800", own))
+        self.assertTrue(web.careers_link_ok("https://knmaskin.teamtailor.com/jobs", own))
+        self.assertTrue(web.careers_link_ok("https://www.knmaskin.example/karriere", own))
+
+    def test_external_recruitment_page_counts_only_its_own_postings(self):
+        url = "https://knmaskin.teamtailor.com/jobs"
+        html = """<html><body>
+        <a href="https://knmaskin.teamtailor.com/jobs/1001-maskinforer">Maskinfører</a>
+        <a href="https://other.teamtailor.com/jobs/2002-kokk">Kokk</a>
+        <a href="https://arbeidsplassen.nav.no/stillinger/stilling/11111111-2222-3333-4444-555555555555">
+          Gårdsarbeider og sjåfør – Turistgård – Gimsøysand</a></body></html>"""
+        r, d = _page(url, html)
+        self.assertEqual([j["title"] for j in web._job_links(d, r, "knmaskin.example")], ["Maskinfører"])
+
+    def test_profile_needs_the_distinctive_name_not_an_industry_word(self):
+        home = "https://mucha.example/"
+        html = """<a href="https://www.facebook.com/DoctorMucha">fb</a>
+        <a href="https://www.facebook.com/dentalsenseoslo">fb2</a>
+        <a href="https://www.instagram.com/dentalsenseoslo">ig</a>"""
+        out = web._socials([_page(home, html)], home, ["MUCHA DENTAL AS"], "mucha")
+        self.assertEqual([i["url"] for items in out.values() for i in items], ["https://www.facebook.com/DoctorMucha"])
+
     def test_group_and_brand_sites_are_recognised(self):
         def doc(title, site_name=""):
             meta = f'<meta property="og:site_name" content="{site_name}">' if site_name else ""

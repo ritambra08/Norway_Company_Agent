@@ -90,6 +90,10 @@ JOB_LINK = re.compile(
     r"jobs\.smartrecruiters\.com/[^/]+/\d+|jobs\.lever\.co/[^/]+/[0-9a-f\-]{36}|"
     r"boards\.greenhouse\.io/[^/]+/jobs/\d+|arbeidsplassen\.nav\.no/stillinger/stilling/[0-9a-f\-]{36}|"
     r"finn\.no/(?:job/[^\s]*finnkode=\d+|\d{6,}))", re.I)
+# Public job boards: a page there shows "similar jobs" from other employers, so it is never read as a
+# company's careers page (NAV ads are collected by org number from the NAV feed instead).
+JOB_BOARDS = re.compile(r"(^|\.)(arbeidsplassen\.nav\.no|nav\.no|finn\.no|jobbnorge\.no|karrierestart\.no|"
+                        r"indeed\.com|no\.indeed\.com|linkedin\.com|stepstone\.\w+|jobindex\.\w+)$", re.I)
 GENERIC_LINK = re.compile(r"^\s*(les\s+mer.*|søk\s+her.*|søk\s+nå|se\s+stilling(en)?|mer\s+info.*|read\s+more.*|"
                           r"apply.*|show\s+more|vis\s+mer|klikk\s+her.*|her)\s*$", re.I)
 # Link texts on careers pages that talk ABOUT working there (or are navigation), not posting titles.
@@ -690,8 +694,8 @@ def _socials(pages: list[tuple[Response, Doc]], home: str, names: list[str] | No
         for k in _keys(" ".join(core)):
             if len(k) >= 4:
                 needles.add(k)
-        for t in core:
-            needles |= {k for k in _keys(t) if len(k) >= 5}
+        if core:  # the distinctive first word ("Mucha", "Myhre"), never a later industry word ("dental")
+            needles |= {k for k in _keys(core[0]) if len(k) >= 5}
     needles |= {k for k in _keys(label.replace("-", " ")) if len(k) >= 3}
     found: dict[str, dict[str, dict]] = {}
     for r, d in pages:
@@ -785,12 +789,24 @@ def _jobpostings(d: Doc, r: Response, names_ok) -> list[dict]:
     return out
 
 
+def careers_link_ok(url: str, own_host: str) -> bool:
+    """A careers page worth reading: on the company's own site, or on an ATS that hosts only its
+    employer's postings. Public job boards are excluded (their pages list other employers' jobs)."""
+    host = (urlsplit(url).hostname or "").lower()
+    if registrable(host) == own_host:
+        return True
+    return bool(ATS_HOSTS.search(host)) and not JOB_BOARDS.search(host)
+
+
 def _job_links(d: Doc, r: Response, own_host: str) -> list[dict]:
     """Postings linked from a careers page. ATS links are postings by their URL shape; links on the
     company's own site must also read like a job title. Navigation ("Hopp til innhold"), links back to the
-    page itself and texts about working there ("Se våre ledige stillinger") are never postings."""
+    page itself and texts about working there ("Se våre ledige stillinger") are never postings. On an
+    external recruitment page only postings on that same recruitment site count."""
     out, seen = [], set()
     here = r.final_url.split("#")[0].rstrip("/")
+    page_name = re.sub(r"^www\.", "", (urlsplit(r.final_url).hostname or "").lower())
+    external = registrable(page_name) != own_host
     for a in d.anchors:
         href = (a.href or "").strip()
         if not href or href.startswith("#") or href.lower().startswith(("javascript:", "mailto:", "tel:")):
@@ -809,6 +825,9 @@ def _job_links(d: Doc, r: Response, own_host: str) -> list[dict]:
         if len(text) < 4 or CAREER_TALK.search(text):
             continue
         host = registrable(urlsplit(u).hostname or "")
+        link_name = re.sub(r"^www\.", "", (urlsplit(u).hostname or "").lower())
+        if external and (link_name != page_name or JOB_BOARDS.search(link_name)):
+            continue  # a recruitment page linking elsewhere (or a job board): not this employer's posting
         if JOB_LINK.search(u):
             seen.add(u)
             out.append({"title": text, "url": u, "method": "ATS job link on careers page"})
@@ -984,7 +1003,7 @@ def crawl_company(http: Http, cfg: Config, snaps: SnapshotStore, robots_cache: d
             host = urlsplit(u).hostname or ""
             if not u.startswith("http"):
                 continue
-            if CAREER_WORDS.search(a.text + " " + urlsplit(u).path) and (registrable(host) == own or ATS_HOSTS.search(host)):
+            if CAREER_WORDS.search(a.text + " " + urlsplit(u).path) and careers_link_ok(u, own):
                 cand_links.append(u)
     w["careers_status"] = "no careers link found on homepage/contact pages"
     for u in list(dict.fromkeys(cand_links))[:2]:

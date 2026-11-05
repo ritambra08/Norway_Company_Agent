@@ -16,7 +16,7 @@
 Subject: `Signalpost Round 1 submission – revision`
 
 ```
-Agent name: Norway Company Agent (Signalpost) v0.2.6
+Agent name: Norway Company Agent (Signalpost) v0.2.7
 Repository URL: https://github.com/ritambra08/Norway_Company_Agent
 Exact commit hash: <git rev-parse HEAD>
 100-company smoke-test result: submission/run-report.json, submission/validate.txt, submission/envelopes.jsonl.gz, submission/index.html (in the repository at that commit)
