@@ -1,0 +1,322 @@
+{
+  "run_id": "smoke-20261105T145133Z-refresh",
+  "agent": {
+    "name": "norway-company-agent",
+    "version": "0.2.0",
+    "model": null,
+    "note": "deterministic pipeline; no LLM and no paid API"
+  },
+  "started_at": "2026-11-05T14:55:40Z",
+  "completed_at": "2026-11-05T14:59:42Z",
+  "runtime_seconds": 242.3,
+  "input": {
+    "path": "smoke/smoke-companies.jsonl",
+    "unique_inputs": 100,
+    "duplicates_dropped": 0,
+    "invalid_org_numbers": 0
+  },
+  "expected_count": 100,
+  "envelopes_written": 100,
+  "one_terminal_envelope_per_input": true,
+  "expected_count_met": true,
+  "status_counts": {
+    "available": 100
+  },
+  "terminal_status_counts": {
+    "completed": 97,
+    "partial": 3
+  },
+  "requests": {
+    "total": 532,
+    "budget": 2000,
+    "by_source": {
+      "brreg": 303,
+      "nav": 45,
+      "web": 184
+    },
+    "retried_errors": 22
+  },
+  "third_party_cost_usd": 0.0,
+  "cost_note": "No paid API or model. Brønnøysund and NAV APIs are free; websites are fetched directly.",
+  "per_company_latency_ms": {
+    "p50": 3298,
+    "p95": 11263
+  },
+  "coverage_by_family": {
+    "activity": {
+      "companies": 100,
+      "share": 1.0
+    },
+    "contact": {
+      "companies": 35,
+      "share": 0.35
+    },
+    "financials": {
+      "companies": 100,
+      "share": 1.0
+    },
+    "identity": {
+      "companies": 100,
+      "share": 1.0
+    },
+    "jobs": {
+      "companies": 2,
+      "share": 0.02
+    },
+    "locations": {
+      "companies": 100,
+      "share": 1.0
+    },
+    "people": {
+      "companies": 100,
+      "share": 1.0
+    },
+    "profiles": {
+      "companies": 3,
+      "share": 0.03
+    },
+    "website": {
+      "companies": 13,
+      "share": 0.13
+    }
+  },
+  "coverage_by_field": {
+    "legal_name": {
+      "available": 100
+    },
+    "organisation_form": {
+      "available": 100
+    },
+    "registry_status": {
+      "available": 100
+    },
+    "registration_date": {
+      "available": 100
+    },
+    "founding_date": {
+      "available": 100
+    },
+    "industry": {
+      "available": 100
+    },
+    "institutional_sector": {
+      "available": 98
+    },
+    "business_description": {
+      "available": 100
+    },
+    "registered_employees": {
+      "available": 26,
+      "not_available": 74
+    },
+    "vat_registered": {
+      "available": 100
+    },
+    "business_register": {
+      "available": 100
+    },
+    "share_capital": {
+      "available": 93
+    },
+    "group_membership": {
+      "available": 100
+    },
+    "former_names": {
+      "available": 100
+    },
+    "parent_unit": {},
+    "public_brand_name": {
+      "blocked": 1,
+      "not_available": 93,
+      "failed": 3,
+      "available": 3
+    },
+    "website_description": {
+      "blocked": 1,
+      "not_available": 91,
+      "available": 5,
+      "failed": 3
+    },
+    "annual_accounts_latest": {
+      "available": 100
+    },
+    "revenue": {
+      "available": 73,
+      "not_available": 27
+    },
+    "operating_result": {
+      "available": 98,
+      "not_available": 2
+    },
+    "profit_before_tax": {
+      "available": 95,
+      "not_available": 5
+    },
+    "net_result": {
+      "available": 100
+    },
+    "total_assets": {
+      "available": 100
+    },
+    "equity": {
+      "available": 98,
+      "not_available": 2
+    },
+    "total_liabilities": {
+      "available": 91,
+      "not_available": 9
+    },
+    "personnel_costs": {
+      "available": 70,
+      "not_available": 30
+    },
+    "annual_accounts_history": {
+      "available": 100
+    },
+    "revenue_change": {
+      "available": 63,
+      "not_available": 37
+    },
+    "latest_filed_accounts_year": {
+      "available": 100
+    },
+    "leadership": {
+      "available": 100
+    },
+    "chief_executive": {
+      "available": 64,
+      "not_available": 36
+    },
+    "board_chair": {
+      "available": 99,
+      "not_available": 1
+    },
+    "board_members": {
+      "available": 100
+    },
+    "auditor": {
+      "not_available": 74,
+      "available": 26
+    },
+    "accountant": {
+      "available": 67,
+      "not_available": 33
+    },
+    "business_address": {
+      "available": 100
+    },
+    "postal_address": {
+      "not_available": 75,
+      "available": 25
+    },
+    "registered_workplaces": {
+      "available": 100
+    },
+    "website_locations": {
+      "blocked": 1,
+      "not_available": 96,
+      "failed": 3
+    },
+    "registered_contact": {
+      "available": 34,
+      "not_available": 66
+    },
+    "website_contact": {
+      "blocked": 1,
+      "not_available": 92,
+      "failed": 3,
+      "available": 4
+    },
+    "registered_website": {
+      "not_available": 93,
+      "available": 7
+    },
+    "official_website": {
+      "blocked": 1,
+      "not_available": 77,
+      "available": 10,
+      "failed": 3,
+      "ambiguous": 9
+    },
+    "social_profiles": {
+      "blocked": 1,
+      "not_available": 93,
+      "failed": 3,
+      "available": 3
+    },
+    "careers_page": {
+      "blocked": 1,
+      "not_available": 94,
+      "failed": 3,
+      "available": 2
+    },
+    "job_postings": {
+      "not_available": 99,
+      "available": 1
+    },
+    "hiring_signal": {
+      "not_available": 99,
+      "available": 1
+    },
+    "registry_change_events": {
+      "available": 100
+    },
+    "role_change_events": {
+      "available": 63,
+      "not_available": 37
+    },
+    "website_news": {
+      "blocked": 1,
+      "not_available": 93,
+      "failed": 3,
+      "available": 3
+    },
+    "public_activity": {
+      "available": 100
+    }
+  },
+  "changes": {
+    "total": 64,
+    "by_type": {
+      "changed_registry_change_events": 20,
+      "new_activity": 22,
+      "dropped_activity": 22
+    },
+    "companies_with_material_changes": 0
+  },
+  "carried_forward_claims": 0,
+  "sources": {
+    "nav_jobs": {
+      "source": "NAV job vacancy feed",
+      "pages": 44,
+      "entries": 214970,
+      "active_ads": 9450,
+      "complete": true,
+      "window_days": 120,
+      "token": "NAV public token (published at /api/publicToken)",
+      "error": null
+    },
+    "websites": {
+      "companies": 100,
+      "verified": 10,
+      "ambiguous": 9,
+      "blocked": 1,
+      "failed": 3,
+      "not_found": 77,
+      "not_checked": 0
+    }
+  },
+  "stage_errors": [],
+  "limits": {
+    "max_requests": 2000,
+    "deadline_seconds": 2400,
+    "web_pages_per_company": 9,
+    "jobs_window_days": 120,
+    "activity_window_days": 730
+  },
+  "outputs": {
+    "envelopes": "smoke/envelopes.jsonl",
+    "snapshots": "smoke/snapshots"
+  },
+  "version": "0.2.0"
+}
