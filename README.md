@@ -27,7 +27,7 @@ python3 -m norway_agent run --organisations batch.jsonl --output out/envelopes.j
 |---|---|
 | `envelopes.jsonl` | One envelope per input, in input order (the scored output; schema below). |
 | `run-report.json` | Requests by source, runtime, p50/p95 per-company latency, cost ($0), coverage per field family and per field, changes by type, and the one-envelope-per-input check. |
-| `profiles.jsonl` | Flattened profile cards for user interfaces (the JBOX app imports this file). |
+| `profiles.jsonl` | Flattened profile cards for user interfaces (the JBOX site reads this file). |
 | `index.html` | Offline viewer: search, filter, sort, compare up to 3 companies, and open the evidence behind every fact. Works on desktop and mobile. |
 | `snapshots/` | Immutable gzip snapshots of every response, plus `index.jsonl` (URL, status, time, hash). |
 | `previous-envelopes.jsonl` | The previous run, kept when a rerun overwrites `envelopes.jsonl`. |
@@ -85,7 +85,7 @@ python3 -m norway_agent run --organisations batch.jsonl --output out/envelopes.j
    - it shows this org number on the homepage, contact, about or privacy page, and the page is not a directory listing many org numbers;
    - it was declared for this company by the register (`hjemmeside`) or by the employer homepage on a NAV ad already tied to this org number, **and** the full company name appears in the site's title, headings, footer, © line or structured data (or the domain and the site's brand are both made of the legal name's words). The name appearing in the body text only counts together with the registered phone or email;
    - it is the domain of the company's own registered email, the domain is the legal name itself (`gangstadbygg.no` for GANGSTAD BYGG AS), and the site names the company;
-   - it is a guessed `<name>.no`, and it shows the name **plus** the registered phone or email.
+   - it is a guessed domain spelled exactly like the legal name (`.no` first, then `.com`; tried when nothing else verified), and it shows the org number (the agent also checks `/kontakt`, `/om-oss` and `/personvern`, where Norwegian sites usually print it) or the name **plus** the registered phone or email.
 
    An email address at an employer, accountant, property manager or service provider is never treated as the company's website; this came from a live test where such addresses led to the wrong organisation. Parked or placeholder pages, and the domain name merely appearing in the page text, never count. A site showing a **different** org number is never merged: register-declared sites become `ambiguous` (likely a parent, franchise or sister company), and other candidates are discarded.
 3. **Jobs.** A NAV ad is published only if the ad's own `employer.orgnr` is this company, or one of its establishments as confirmed in the register. Same-name employers are rejected and counted. A careers-page `JobPosting` whose `hiringOrganization` names another employer is dropped.
@@ -150,4 +150,8 @@ Tests (`make test`) run the whole pipeline against a simulated internet: the reg
 
 ## JBOX
 
-The user-facing Signalpost app is built with JBOX on top of `profiles.jsonl`; see [docs/JBOX.md](docs/JBOX.md).
+The public Signalpost site (find a company, compare two, check where each fact came from, on laptop and phone) is built with [JBOX](https://jboxai.com) on top of `submission/profiles.jsonl`. It reads that file directly from this repository, so it updates with each pushed run.
+
+- Brief given to JBOX: [docs/jbox/SIGNALPOST_JBOX_BRIEF.md](docs/jbox/SIGNALPOST_JBOX_BRIEF.md)
+- Data reference: [docs/jbox/DATA_SPEC.md](docs/jbox/DATA_SPEC.md)
+- Live site (built with JBOX): <JBOX site URL>

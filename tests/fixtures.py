@@ -35,6 +35,7 @@ J = make_orgnr(93333333)   # KVIST BYGG AS: email domain named after the company
 K = make_orgnr(93444444)   # SKOGLY DATA AS: NAV ad under a longer business name, same org number
 EMPLOYER = make_orgnr(93555555)
 L = make_orgnr(93666666)   # TRESTEIN AS: email domain named after the company, but the domain is parked
+M = make_orgnr(93777777)   # GLIMT ANALYSE AS: email at its accountant; own .com site shows org nr on /kontakt
 SUB_A1 = make_orgnr(81234567)
 SUB_A2 = make_orgnr(82345678)
 PARENT_C = make_orgnr(91111111)
@@ -90,6 +91,7 @@ ENHETER = {
     J: enhet(J, "KVIST BYGG AS", epostadresse="post@kvistbygg.example", telefon="33 44 55 66"),
     K: enhet(K, "SKOGLY DATA AS"),
     L: enhet(L, "TRESTEIN AS", epostadresse="post@trestein.example"),
+    M: enhet(M, "GLIMT ANALYSE AS", epostadresse="glimt@regnskapx.example"),
 }
 
 
@@ -382,6 +384,16 @@ class FakeInternet:
             return self.h(CAREERS_FORMUE if path == "/karriere" else HOME_FORMUE)
         if host == "obblx.example":
             return self.h("", 404) if path == "/robots.txt" else self.h(HOME_OBBL)
+        if host == "regnskapx.example":
+            return self.h("", 404) if path == "/robots.txt" else self.h(
+                f"<html><head><title>Regnskap X</title></head><body>Regnskap X AS, org.nr. {fmt(EMPLOYER)}. "
+                "Vi fører regnskap for Glimt Analyse og mange andre.</body></html>")
+        if host in ("glimtanalyse.com", "www.glimtanalyse.com"):
+            if path == "/":
+                return self.h("<html><head><title>Glimt</title></head><body><h1>Data og analyse</h1></body></html>")
+            if path == "/kontakt":
+                return self.h(f"<html><body>Glimt Analyse AS · Org.nr. {fmt(M)} · Oslo</body></html>")
+            return self.h("not found", 404)
         if host == "trestein.example":
             return self.h("", 404) if path == "/robots.txt" else self.h(
                 "<html><head><title>trestein.example is parked</title></head><body>trestein.example</body></html>")
@@ -393,5 +405,5 @@ class FakeInternet:
 
 
 def batch_lines():
-    return [{"organisation_number": o} for o in (A, B, C, D, E, G, NF, H, I, J, K, L)] + \
+    return [{"organisation_number": o} for o in (A, B, C, D, E, G, NF, H, I, J, K, L, M)] + \
         [{"organisation_number": "123456789"}, {"organisation_number": A}]

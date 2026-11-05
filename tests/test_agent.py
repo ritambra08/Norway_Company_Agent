@@ -17,7 +17,7 @@ from tests import fixtures as fx
 
 
 def fake_resolves(host, timeout=3.0):
-    return host in ("nordlysholding.no", "www.nordlysholding.no")
+    return host in ("nordlysholding.no", "www.nordlysholding.no", "glimtanalyse.com")
 
 
 class Clock:
@@ -39,7 +39,7 @@ def do_run(tmp: Path, net=None, cfg=None, previous=None, run_id="t1"):
     with mock.patch.object(web, "_resolves", fake_resolves):
         rep = run(str(batch), tmp / "out" / "envelopes.jsonl", tmp / "out" / "run-report.json", run_id,
                   cfg or Config(), previous=previous, opener=net, clock=clock, sleep=clock.sleep,
-                  expected_count=13)
+                  expected_count=14)
     envs = {e["organisation_number"]: e for e in map(json.loads, (tmp / "out" / "envelopes.jsonl").read_text().splitlines())}
     return rep, envs, net
 
@@ -55,7 +55,7 @@ class ContractTest(unittest.TestCase):
         cls.rep, cls.envs, cls.net = do_run(cls.tmp)
 
     def test_one_terminal_envelope_per_input(self):
-        self.assertEqual(len(self.envs), 13)  # 12 + invalid; duplicate dropped
+        self.assertEqual(len(self.envs), 14)  # 13 + invalid; duplicate dropped
         self.assertTrue(self.rep["one_terminal_envelope_per_input"])
         self.assertEqual(self.rep["input"]["duplicates_dropped"], 1)
         for e in self.envs.values():
@@ -170,6 +170,21 @@ class ContractTest(unittest.TestCase):
         self.assertEqual(w["availability"], "available")
         self.assertIn("domain_matches_legal_name", w["value"]["verification"])
 
+    def test_com_guess_after_failed_email_domain_verified_by_org_number_on_unlinked_contact_page(self):
+        w = claim(self.envs[fx.M], "official_website")
+        self.assertEqual(w["availability"], "available")
+        self.assertEqual(w["value"]["verification"], "org_number_on_site")
+        self.assertEqual(w["value"]["candidate_from"], "name_guess")
+        self.assertIn("glimtanalyse.com", w["value"]["url"])
+        self.assertNotIn("regnskapx", json.dumps(w))
+
+    def test_primary_evidence_comes_first(self):
+        a = self.envs[fx.A]
+        ev = {e["id"]: e for e in a["evidence"]}
+        first = ev[claim(a, "revenue")["evidence_ids"][0]]
+        self.assertTrue(first["locator"]["path"].endswith("sumDriftsinntekter"))
+        self.assertEqual(first["claim_span"], "15000000.0")
+
     def test_parked_domain_is_never_published(self):
         self.assertEqual(claim(self.envs[fx.L], "official_website")["availability"], "not_available")
 
@@ -228,7 +243,7 @@ class ContractTest(unittest.TestCase):
         out = self.tmp / "out"
         self.assertTrue((out / "index.html").exists())
         self.assertIn("FJORDTECH AS", (out / "index.html").read_text())
-        self.assertEqual(len((out / "profiles.jsonl").read_text().splitlines()), 13)
+        self.assertEqual(len((out / "profiles.jsonl").read_text().splitlines()), 14)
         rep = json.loads((out / "run-report.json").read_text())
         self.assertEqual(rep["third_party_cost_usd"], 0.0)
         self.assertTrue(rep["expected_count_met"])
@@ -296,7 +311,7 @@ class BudgetTest(unittest.TestCase):
         tmp = Path(tempfile.mkdtemp())
         cfg = Config(max_requests=3)
         rep, envs, _ = do_run(tmp, cfg=cfg)
-        self.assertEqual(len(envs), 13)
+        self.assertEqual(len(envs), 14)
         self.assertTrue(rep["one_terminal_envelope_per_input"])
         n, problems, _ = validate(tmp / "out" / "envelopes.jsonl")
         self.assertEqual(problems, [])

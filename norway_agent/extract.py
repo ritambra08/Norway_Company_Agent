@@ -274,7 +274,7 @@ def _financials(b: Builder, s: CompanyState) -> None:
                b.ev_json(f.resp, f"{pre}.valuta", "official_accounts", rp)]
     if atype:
         base_ev.append(b.ev_json(f.resp, f"{pre}.regnskapstype", "official_accounts", rp))
-    figures, fig_ev = {}, list(base_ev)
+    figures, fig_ev = {}, []
     group_note = ("Consolidated group (KONSERN) figures, not the company alone. " if atype == "KONSERN" else "")
     for fld, path in FIN:
         v = jpath_get(e, path)
@@ -283,7 +283,7 @@ def _financials(b: Builder, s: CompanyState) -> None:
             figures[fld] = v
             fig_ev.append(eid)
             b.put(fld, {"amount": v, "currency": cur, "period_start": rp["start"], "period_end": rp["end"],
-                        "accounts_type": atype}, base_ev + [eid], reporting_period=rp,
+                        "accounts_type": atype}, [eid] + base_ev, reporting_period=rp,
                   note=group_note + "Copied unchanged from the filed annual accounts; no conversion or rounding.")
         else:
             b.absent(fld, "not_available", f"Not reported in the open accounts record for the period ending {rp['end']}.")
@@ -292,7 +292,8 @@ def _financials(b: Builder, s: CompanyState) -> None:
     latest = {"period_start": rp["start"], "period_end": rp["end"], "currency": cur, "accounts_type": atype,
               "figures": figures, "small_company_rules": rules.get("smaaForetak"),
               "audit_opted_out": rev.get("fravalgRevisjon"), "liquidation_accounts": e.get("avviklingsregnskap")}
-    b.put("annual_accounts_latest", {k: v for k, v in latest.items() if v is not None}, fig_ev, reporting_period=rp,
+    b.put("annual_accounts_latest", {k: v for k, v in latest.items() if v is not None}, fig_ev + base_ev,
+          reporting_period=rp,
           note=(group_note + (f"Conflicting filings for {', '.join(conflicts)} were not published. " if conflicts else "")).strip() or None)
     hist, hist_ev = [], []
     for end in ends:

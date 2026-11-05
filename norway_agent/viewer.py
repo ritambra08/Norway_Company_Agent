@@ -24,6 +24,19 @@ def _strip(s: str) -> str:
     return re.sub(r"\s+", " ", html.unescape(s)).strip()[:400]
 
 
+def _quote(span: str) -> str:
+    """Evidence span for display: JSON-encoded values are shown as the value itself."""
+    try:
+        v = json.loads(span)
+    except (ValueError, TypeError):
+        return _strip(span)
+    if isinstance(v, str):
+        return v
+    if isinstance(v, (int, float)) and not isinstance(v, bool):
+        return f"{v:,.2f}".replace(",", " ").rstrip("0").rstrip(".") if isinstance(v, float) else str(v)
+    return _strip(span)
+
+
 def _fmt(field: str, v) -> str:
     if v is None:
         return ""
@@ -82,7 +95,7 @@ def card(env: dict) -> dict:
                 index[i] = len(table)
                 table.append({"s": src.get("source_name") or e.get("source_class"), "u": e.get("source_url"),
                               "t": e.get("retrieved_at"), "h": (e.get("content_sha256") or "")[:12],
-                              "x": _strip(e.get("claim_span", ""))[:160],
+                              "x": _quote(e.get("claim_span", ""))[:160],
                               "l": (e.get("locator") or {}).get("path") or e.get("extraction_method"),
                               "p": 1 if e.get("from_previous_run") else 0})
             out.append(index[i])

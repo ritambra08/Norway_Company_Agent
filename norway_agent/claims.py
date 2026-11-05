@@ -161,7 +161,7 @@ class Builder:
         family, label = FIELDS[field]
         c = {"field": field, "family": family, "section": SECTION_OF_FAMILY[family], "label": label,
              "value": value, "availability": availability, "confidence": round(confidence, 3),
-             "evidence_ids": sorted(set(evidence_ids))}
+             "evidence_ids": list(dict.fromkeys(evidence_ids))}
         if reporting_period:
             c["reporting_period"] = reporting_period
         if note:
@@ -178,7 +178,7 @@ class Builder:
         family, label = FIELDS[field]
         c = {"field": field, "family": family, "section": SECTION_OF_FAMILY[family], "label": label,
              "value": value, "availability": availability, "confidence": None,
-             "evidence_ids": sorted(set(evidence_ids)), "reason": reason}
+             "evidence_ids": list(dict.fromkeys(evidence_ids)), "reason": reason}
         if checked_sources:
             c["checked_sources"] = checked_sources
         self.claims[field] = c

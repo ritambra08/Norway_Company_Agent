@@ -92,6 +92,8 @@ JOB_LINK = re.compile(
     r"finn\.no/(?:job/[^\s]*finnkode=\d+|\d{6,}))", re.I)
 GENERIC_LINK = re.compile(r"^\s*(les\s+mer.*|søk\s+her.*|søk\s+nå|se\s+stilling(en)?|mer\s+info.*|read\s+more.*|"
                           r"apply.*|show\s+more|vis\s+mer|klikk\s+her.*|her)\s*$", re.I)
+# Norwegian sites must show the org number (ehandelsloven § 8); it is usually on one of these pages.
+PROBE_PATHS = ("/kontakt", "/om-oss", "/personvern")
 SITE_JOB_PATH = re.compile(r"/(stilling|stillinger|ledige-stillinger|jobb|jobber|jobs|job|karriere|career|careers|"
                            r"vacancies|vacancy)/[^/?#]{4,}", re.I)
 
@@ -321,16 +323,24 @@ def _candidates(s: CompanyState) -> list[tuple[str, str]]:
     return res
 
 
-def _guesses(s: CompanyState, known: set[str]) -> list[tuple[str, str]]:
-    res = []
-    for d in domain_candidates(s.name()):
-        if registrable(d) in known:
-            continue
-        for host in (d, "www." + d):
-            if _resolves(host):
-                res.append((f"https://{host}/", "name_guess"))
-                break
-    return res[:2]
+def _guesses(s: CompanyState, known: set[str], limit: int = 3) -> list[tuple[str, str]]:
+    """Domains spelled exactly like the legal name, .no first, then .com. Candidates only: a guess is
+    published only if the site shows this org number, or the name plus the registered phone/email."""
+    res: list[tuple[str, str]] = []
+    labels = [d.rsplit(".", 1)[0] for d in domain_candidates(s.name())]
+    for tld in ("no", "com"):
+        for label in labels:
+            d = f"{label}.{tld}"
+            if registrable(d) in known:
+                continue
+            for host in (d, "www." + d):
+                if _resolves(host):
+                    res.append((f"https://{host}/", "name_guess"))
+                    known.add(registrable(d))
+                    break
+            if len(res) >= limit:
+                return res
+    return res
 
 
 def _norm_phone(raw: str) -> str | None:
@@ -468,16 +478,24 @@ def _verify(s: CompanyState, crawler: SiteCrawler, url: str, origin: str) -> dic
             if score:
                 links.append((-score, len(links), target.split("#")[0]))
         ordered = [t for _, _, t in sorted(links)]
-        for target in list(dict.fromkeys(ordered))[:2]:
+        targets = list(dict.fromkeys(ordered))[:2]
+        base = f"{urlsplit(r.final_url).scheme}://{urlsplit(r.final_url).netloc}"
+        # Only for candidates that must prove themselves by org number (guesses, email domains).
+        probes = ([] if origin in ("registry", "nav_employer_homepage") else
+                  [base + p for p in PROBE_PATHS if base + p not in targets][: max(0, 3 - len(targets))])
+        for target in targets + probes:
+            if hit:
+                break
             r2, d2, o2 = crawler.fetch(target)
             if o2 != "ok" or d2 is None:
                 continue
+            if r2 is not None and registrable(urlsplit(r2.final_url).hostname or "") != home_host:
+                continue  # a probe that redirects off-site proves nothing
             checked.append((r2, d2))
             raw2, m2, others2 = look(r2, d2)
             other_all |= others2
             if m2:
                 hit = (r2, m2, raw2)
-                break
     res["pages"] = checked
     all_text = " ".join(d.title + " " + d.metas.get("og:site_name", "") + " " + d.text for _, d in checked)
     raw_all = " ".join(x.text() for x, _ in checked)
@@ -496,12 +514,17 @@ def _verify(s: CompanyState, crawler: SiteCrawler, url: str, origin: str) -> dic
     declared = origin in ("registry", "nav_employer_homepage")
 
     def contact_span() -> tuple[Response, str]:
-        if phone_m:
-            sp = span(raw_all, phone_m.start(), phone_m.end())
-        else:
-            i = raw_all.lower().find(email)
-            sp = span(raw_all, i, i + len(email))
-        return next((x for x, _ in checked if sp and sp in x.text()), r), sp
+        # Quote from one page only, so the span replays from that page's snapshot.
+        for x, _ in checked:
+            t = x.text()
+            m = _phone_on(t, phones)
+            if m:
+                return x, span(t, m.start(), m.end())
+            if email:
+                i = t.lower().find(email)
+                if i >= 0:
+                    return x, span(t, i, i + len(email))
+        return r, ""
 
     def name_proof() -> tuple[Response, str]:
         for x, _ in checked:
@@ -745,23 +768,30 @@ def crawl_company(http: Http, cfg: Config, snaps: SnapshotStore, robots_cache: d
         return
     crawler = SiteCrawler(http, cfg, snaps, robots_cache, s.scope)
     cands = _candidates(s)
-    if cfg.enable_domain_guess and not cands:
-        cands += _guesses(s, {registrable(urlsplit(u).hostname or "") for u, _ in cands})
+    known = {registrable(urlsplit(u).hostname or "") for u, _ in cands}
+    verified = None
+
+    def attempt(batch):
+        nonlocal verified
+        for url, origin in batch:
+            if verified or not http.can_start():
+                return
+            v = _verify(s, crawler, url, origin)
+            w["attempts"].append(v)
+            if v["verdict"] == "verified":
+                verified = v
+
+    attempt(cands)
+    if not verified and cfg.enable_domain_guess and http.can_start():
+        guesses = _guesses(s, known)
+        cands += guesses
+        attempt(guesses)
     w["candidates"] = [{"url": u, "origin": o} for u, o in cands]
     if not cands:
         s.status["website"] = SourceStatus("not_found", "no website declared in the register or on NAV ads, "
-                                                        "no company email domain, and no .no domain matching the "
-                                                        "name resolved")
+                                                        "no company email domain, and no .no or .com domain spelled "
+                                                        "like the legal name resolved")
         return
-    verified = None
-    for url, origin in cands:
-        if not http.can_start():
-            break
-        v = _verify(s, crawler, url, origin)
-        w["attempts"].append(v)
-        if v["verdict"] == "verified":
-            verified = v
-            break
     if not verified:
         declared = [a for a in w["attempts"] if a["origin"] in ("registry", "nav_employer_homepage")]
         verdicts = [a["verdict"] for a in declared]

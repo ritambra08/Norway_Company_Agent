@@ -60,7 +60,7 @@ class Config:
     jobs_max_pages: int = 80
     jobs_time_budget_s: float = 420.0
     jobs_max_details_per_company: int = 12
-    web_pages_per_company: int = 9
+    web_pages_per_company: int = 16
     web_time_budget_share: float = 0.9   # of the time left when the web stage starts
 
     declared_api_cost_usd: float = 0.0
