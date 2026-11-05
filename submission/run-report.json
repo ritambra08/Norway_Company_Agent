@@ -1,14 +1,14 @@
 {
-  "run_id": "smoke-20261105T153906Z",
+  "run_id": "smoke-20261105T182908Z",
   "agent": {
     "name": "norway-company-agent",
-    "version": "0.2.1",
+    "version": "0.2.3",
     "model": null,
     "note": "deterministic pipeline; no LLM and no paid API"
   },
-  "started_at": "2026-11-05T15:39:07Z",
-  "completed_at": "2026-11-05T15:43:58Z",
-  "runtime_seconds": 291.6,
+  "started_at": "2026-11-05T18:29:08Z",
+  "completed_at": "2026-11-05T18:35:43Z",
+  "runtime_seconds": 395.7,
   "input": {
     "path": "smoke/smoke-companies.jsonl",
     "unique_inputs": 100,
@@ -27,20 +27,20 @@
     "partial": 2
   },
   "requests": {
-    "total": 557,
+    "total": 794,
     "budget": 2000,
     "by_source": {
       "brreg": 304,
       "nav": 52,
-      "web": 201
+      "web": 438
     },
-    "retried_errors": 44
+    "retried_errors": 104
   },
   "third_party_cost_usd": 0.0,
   "cost_note": "No paid API or model. Brønnøysund and NAV APIs are free; websites are fetched directly.",
   "per_company_latency_ms": {
-    "p50": 3089,
-    "p95": 11576
+    "p50": 9004,
+    "p95": 87058
   },
   "coverage_by_family": {
     "activity": {
@@ -76,8 +76,8 @@
       "share": 0.02
     },
     "website": {
-      "companies": 10,
-      "share": 0.1
+      "companies": 12,
+      "share": 0.12
     }
   },
   "coverage_by_field": {
@@ -126,13 +126,13 @@
     },
     "parent_unit": {},
     "public_brand_name": {
-      "not_available": 96,
-      "available": 2,
+      "not_available": 94,
+      "available": 4,
       "failed": 2
     },
     "website_description": {
-      "not_available": 95,
-      "available": 3,
+      "not_available": 94,
+      "available": 4,
       "failed": 2
     },
     "annual_accounts_latest": {
@@ -219,17 +219,17 @@
       "not_available": 66
     },
     "website_contact": {
-      "not_available": 97,
-      "failed": 2,
-      "available": 1
+      "not_available": 96,
+      "available": 2,
+      "failed": 2
     },
     "registered_website": {
       "not_available": 93,
       "available": 7
     },
     "official_website": {
-      "not_available": 90,
-      "available": 5,
+      "not_available": 88,
+      "available": 7,
       "ambiguous": 3,
       "failed": 2
     },
@@ -274,8 +274,8 @@
     "nav_jobs": {
       "source": "NAV job vacancy feed",
       "pages": 37,
-      "entries": 359529,
-      "active_ads": 9604,
+      "entries": 359527,
+      "active_ads": 9629,
       "complete": true,
       "window_days": 185,
       "token": "NAV public token (published at /api/publicToken)",
@@ -286,11 +286,11 @@
     },
     "websites": {
       "companies": 100,
-      "verified": 5,
+      "verified": 7,
       "ambiguous": 3,
       "blocked": 0,
       "failed": 2,
-      "not_found": 90,
+      "not_found": 88,
       "not_checked": 0
     }
   },
@@ -298,7 +298,7 @@
   "limits": {
     "max_requests": 2000,
     "deadline_seconds": 2400,
-    "web_pages_per_company": 9,
+    "web_pages_per_company": 16,
     "jobs_window_days": 185,
     "activity_window_days": 730
   },
@@ -306,5 +306,5 @@
     "envelopes": "smoke/envelopes.jsonl",
     "snapshots": "smoke/snapshots"
   },
-  "version": "0.2.1"
+  "version": "0.2.3"
 }
