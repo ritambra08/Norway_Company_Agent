@@ -39,7 +39,7 @@ def do_run(tmp: Path, net=None, cfg=None, previous=None, run_id="t1"):
     with mock.patch.object(web, "_resolves", fake_resolves):
         rep = run(str(batch), tmp / "out" / "envelopes.jsonl", tmp / "out" / "run-report.json", run_id,
                   cfg or Config(), previous=previous, opener=net, clock=clock, sleep=clock.sleep,
-                  expected_count=8)
+                  expected_count=13)
     envs = {e["organisation_number"]: e for e in map(json.loads, (tmp / "out" / "envelopes.jsonl").read_text().splitlines())}
     return rep, envs, net
 
@@ -55,7 +55,7 @@ class ContractTest(unittest.TestCase):
         cls.rep, cls.envs, cls.net = do_run(cls.tmp)
 
     def test_one_terminal_envelope_per_input(self):
-        self.assertEqual(len(self.envs), 8)  # 7 + invalid; duplicate dropped
+        self.assertEqual(len(self.envs), 13)  # 12 + invalid; duplicate dropped
         self.assertTrue(self.rep["one_terminal_envelope_per_input"])
         self.assertEqual(self.rep["input"]["duplicates_dropped"], 1)
         for e in self.envs.values():
@@ -152,6 +152,32 @@ class ContractTest(unittest.TestCase):
         self.assertEqual(claim(b, "official_website")["availability"], "not_available")
         self.assertNotIn("nordlysholding", json.dumps(claim(b, "social_profiles")))
 
+    def test_email_domain_of_employer_is_never_published(self):
+        h = self.envs[fx.H]
+        self.assertEqual(claim(h, "official_website")["availability"], "not_available")
+        self.assertNotIn("formuex", json.dumps([c for c in h["claims"] if c["availability"] == "available"
+                                                and c["field"] != "registered_contact"]))
+        self.assertNotEqual(claim(h, "job_postings")["availability"], "available")
+
+    def test_email_domain_of_manager_listing_the_company_is_never_published(self):
+        i = self.envs[fx.I]
+        self.assertEqual(claim(i, "official_website")["availability"], "not_available")
+        self.assertNotIn("obblx", json.dumps([c for c in i["claims"] if c["availability"] == "available"
+                                              and c["field"] != "registered_contact"]))
+
+    def test_email_domain_named_after_company_is_verified(self):
+        w = claim(self.envs[fx.J], "official_website")
+        self.assertEqual(w["availability"], "available")
+        self.assertIn("domain_matches_legal_name", w["value"]["verification"])
+
+    def test_parked_domain_is_never_published(self):
+        self.assertEqual(claim(self.envs[fx.L], "official_website")["availability"], "not_available")
+
+    def test_job_ad_under_longer_business_name_found_by_org_number(self):
+        jobs = claim(self.envs[fx.K], "job_postings")
+        self.assertEqual(jobs["availability"], "available")
+        self.assertEqual(jobs["value"][0]["title"], "Systemutvikler")
+
     def test_robots_block_is_reported(self):
         self.assertEqual(claim(self.envs[fx.D], "official_website")["availability"], "blocked")
         self.assertNotIn("https://robotstopp.example/", [u for u in self.net.calls if not u.endswith("robots.txt")])
@@ -202,7 +228,7 @@ class ContractTest(unittest.TestCase):
         out = self.tmp / "out"
         self.assertTrue((out / "index.html").exists())
         self.assertIn("FJORDTECH AS", (out / "index.html").read_text())
-        self.assertEqual(len((out / "profiles.jsonl").read_text().splitlines()), 8)
+        self.assertEqual(len((out / "profiles.jsonl").read_text().splitlines()), 13)
         rep = json.loads((out / "run-report.json").read_text())
         self.assertEqual(rep["third_party_cost_usd"], 0.0)
         self.assertTrue(rep["expected_count_met"])
@@ -270,7 +296,7 @@ class BudgetTest(unittest.TestCase):
         tmp = Path(tempfile.mkdtemp())
         cfg = Config(max_requests=3)
         rep, envs, _ = do_run(tmp, cfg=cfg)
-        self.assertEqual(len(envs), 8)
+        self.assertEqual(len(envs), 13)
         self.assertTrue(rep["one_terminal_envelope_per_input"])
         n, problems, _ = validate(tmp / "out" / "envelopes.jsonl")
         self.assertEqual(problems, [])

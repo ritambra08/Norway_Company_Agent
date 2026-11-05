@@ -29,6 +29,12 @@ D = make_orgnr(94567890)   # ROBOTSTOPP AS: robots.txt disallows everything
 E = make_orgnr(95678901)   # KARI NORDMANN (ENK): sole proprietorship, no accounts in the open API
 G = make_orgnr(96789012)   # BANKEN AS: accounts API refuses (500 with message), no roles
 NF = make_orgnr(97890123)  # valid checksum, not registered anywhere
+H = make_orgnr(93111111)   # GURIASEN HOLDING AS: email at the owner's employer (shared switchboard phone)
+I = make_orgnr(93222222)   # LIABAKKEN BORETTSLAG: email at its housing-association manager, listed by name
+J = make_orgnr(93333333)   # KVIST BYGG AS: email domain named after the company, no website in the register
+K = make_orgnr(93444444)   # SKOGLY DATA AS: NAV ad under a longer business name, same org number
+EMPLOYER = make_orgnr(93555555)
+L = make_orgnr(93666666)   # TRESTEIN AS: email domain named after the company, but the domain is parked
 SUB_A1 = make_orgnr(81234567)
 SUB_A2 = make_orgnr(82345678)
 PARENT_C = make_orgnr(91111111)
@@ -78,6 +84,12 @@ ENHETER = {
     E: enhet(E, "KARI NORDMANN", form="ENK", antallAnsatte=None, harRegistrertAntallAnsatte=True,
              mobil="922 24 185", kapital=None, registrertIForetaksregisteret=False),
     G: enhet(G, "BANKEN AS", konkurs=True),
+    H: enhet(H, "GURIASEN HOLDING AS", epostadresse="torkel@formuex.example", telefon="24 12 44 00",
+             naeringskode1={"kode": "64.200", "beskrivelse": "Holdingselskaper"}),
+    I: enhet(I, "LIABAKKEN BORETTSLAG", epostadresse="liabakken@obblx.example", telefon="35 02 90 10"),
+    J: enhet(J, "KVIST BYGG AS", epostadresse="post@kvistbygg.example", telefon="33 44 55 66"),
+    K: enhet(K, "SKOGLY DATA AS"),
+    L: enhet(L, "TRESTEIN AS", epostadresse="post@trestein.example"),
 }
 
 
@@ -182,6 +194,17 @@ HOME_C = f"""<html><head><title>Bergen Bygg Gruppen</title></head><body><h1>Berg
 <p>Vi bygger Vestlandet.</p><footer>Bergen Bygg Gruppen AS – org.nr. {PARENT_C} MVA</footer></body></html>"""
 HOME_GUESS_B = f"""<html><head><title>Nordlys Holding</title></head><body>Nordlys Holding AS, Tromsø.
 Organisasjonsnummer: {NAMESAKE}</body></html>"""
+HOME_FORMUE = """<html><head><title>Formuex – formuesforvaltning</title></head><body><h1>Formuex</h1>
+<p>Ring oss på 24 12 44 00. Vi forvalter formue for familier, selskaper og stiftelser, blant annet
+Guriasen Holding og andre.</p><a href="/karriere">Karriere</a></body></html>"""
+CAREERS_FORMUE = '''<html><head><title>Karriere</title><script type="application/ld+json">{"@type":"JobPosting",
+"title":"Senior Controller","datePosted":"2026-10-01","hiringOrganization":{"name":"Formuex"}}</script></head>
+<body>Jobb hos Formuex</body></html>'''
+HOME_OBBL = """<html><head><title>Obblx Boligbyggelag</title></head><body><h1>Obblx Boligbyggelag</h1>
+<p>Våre borettslag: Liabakken Borettslag, Granlia Borettslag, Solsiden Borettslag.</p>
+<p>Sentralbord 35 02 90 10</p></body></html>"""
+HOME_KVIST = """<html><head><title>Kvist Bygg – tømrer i Tønsberg</title></head><body><h1>Kvist Bygg AS</h1>
+<p>Ring 33 44 55 66</p></body></html>"""
 HOME_D = "<html><head><title>Robotstopp</title></head><body>ROBOTSTOPP AS org.nr " + D + "</body></html>"
 
 
@@ -200,6 +223,8 @@ NAV_ADS = {
                                                    "FJORDTECH AS", A, "https://www.fjordtech.example"),
     "22222222-2222-2222-2222-222222222222": nav_ad("22222222-2222-2222-2222-222222222222", "Konsulent Oslo",
                                                    "FJORDTECH AVD OSLO", SUB_A2),
+    "55555555-5555-5555-5555-555555555555": nav_ad("55555555-5555-5555-5555-555555555555", "Systemutvikler",
+                                                   "Skogly Data Avdeling Drammen", K),
     "33333333-3333-3333-3333-333333333333": nav_ad("33333333-3333-3333-3333-333333333333", "Snekker",
                                                    "FJORDTECH AS", NAMESAKE),
 }
@@ -228,6 +253,7 @@ class FakeInternet:
             "first": feed_page([feed_item("11111111-1111-1111-1111-111111111111", "Fjordtech AS"),
                                 feed_item("33333333-3333-3333-3333-333333333333", "FJORDTECH AS")], "p2"),
             "p2": feed_page([feed_item("22222222-2222-2222-2222-222222222222", "Fjordtech avd. Oslo"),
+                             feed_item("55555555-5555-5555-5555-555555555555", "Skogly Data Avdeling Drammen"),
                              feed_item("44444444-4444-4444-4444-444444444444", "Annen Bedrift AS")], None),
         }
 
@@ -350,11 +376,22 @@ class FakeInternet:
             if path == "/robots.txt":
                 return self.h("User-agent: *\nDisallow: /\n", ctype="text/plain")
             return self.h(HOME_D)
+        if host == "formuex.example":
+            if path == "/robots.txt":
+                return self.h("", 404)
+            return self.h(CAREERS_FORMUE if path == "/karriere" else HOME_FORMUE)
+        if host == "obblx.example":
+            return self.h("", 404) if path == "/robots.txt" else self.h(HOME_OBBL)
+        if host == "trestein.example":
+            return self.h("", 404) if path == "/robots.txt" else self.h(
+                "<html><head><title>trestein.example is parked</title></head><body>trestein.example</body></html>")
+        if host == "kvistbygg.example":
+            return self.h("", 404) if path == "/robots.txt" else self.h(HOME_KVIST)
         if host in ("nordlysholding.no", "www.nordlysholding.no"):
             return self.h("", 404) if path == "/robots.txt" else self.h(HOME_GUESS_B)
         raise OSError(f"Name or service not known: {host}")
 
 
 def batch_lines():
-    return [{"organisation_number": o} for o in (A, B, C, D, E, G, NF)] + \
+    return [{"organisation_number": o} for o in (A, B, C, D, E, G, NF, H, I, J, K, L)] + \
         [{"organisation_number": "123456789"}, {"organisation_number": A}]

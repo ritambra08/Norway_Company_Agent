@@ -43,12 +43,17 @@ def core_tokens(name: str) -> list[str]:
     return core or [t for t in toks if len(t) >= 3]
 
 
-def page_names_company(name: str, page_text: str) -> bool:
+def required_tokens(name: str) -> list[str]:
+    """Words a page must show to 'name' the company. One distinctive token is weak evidence
+    ("BERGEN BYGG" vs "Bergen kommune"), so then every non-legal-form word is required."""
     core = core_tokens(name)
     if len(core) < 2:
-        # One distinctive token is weak evidence ("BERGEN BYGG" vs "Bergen kommune"): require every
-        # non-legal-form word of the name instead.
         core = [t for t in tokens(name) if t not in LEGAL_SUFFIXES] or core
+    return core
+
+
+def page_names_company(name: str, page_text: str) -> bool:
+    core = required_tokens(name)
     if not core:
         return False
     hay = " " + fold(page_text) + " "

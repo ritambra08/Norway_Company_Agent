@@ -83,9 +83,11 @@ python3 -m norway_agent run --organisations batch.jsonl --output out/envelopes.j
 1. **Identity.** A register record is used only if its own `organisasjonsnummer` equals the requested one. Batched lookups are matched by exact number. Establishments keep their own numbers and are never merged with the parent.
 2. **Website identity gate.** A site is published as the official website only if one of these holds:
    - it shows this org number on the homepage, contact, about or privacy page, and the page is not a directory listing many org numbers;
-   - it was declared for this company by an official source (the register's `hjemmeside`, the employer homepage on a NAV ad already tied to this org number, or the registered email domain), **and** it names the company, shows the registered phone or email, or uses a domain and brand made of the legal name's words.
+   - it was declared for this company by the register (`hjemmeside`) or by the employer homepage on a NAV ad already tied to this org number, **and** the full company name appears in the site's title, headings, footer, © line or structured data (or the domain and the site's brand are both made of the legal name's words). The name appearing in the body text only counts together with the registered phone or email;
+   - it is the domain of the company's own registered email, the domain is the legal name itself (`gangstadbygg.no` for GANGSTAD BYGG AS), and the site names the company;
+   - it is a guessed `<name>.no`, and it shows the name **plus** the registered phone or email.
 
-   A site showing a **different** org number is never merged: declared sites become `ambiguous` (likely a parent or sister company), and guessed `<name>.no` sites are discarded. A guess needs the org number, or the name plus the registered phone or email.
+   An email address at an employer, accountant, property manager or service provider is never treated as the company's website; this came from a live test where such addresses led to the wrong organisation. Parked or placeholder pages, and the domain name merely appearing in the page text, never count. A site showing a **different** org number is never merged: register-declared sites become `ambiguous` (likely a parent, franchise or sister company), and other candidates are discarded.
 3. **Jobs.** A NAV ad is published only if the ad's own `employer.orgnr` is this company, or one of its establishments as confirmed in the register. Same-name employers are rejected and counted. A careers-page `JobPosting` whose `hiringOrganization` names another employer is dropped.
 4. **Numbers.** Values are copied verbatim with currency and period, never converted or rounded. Conflicting filings for one period produce `ambiguous` and nothing is published. A missing currency means nothing is published.
 5. **Evidence.** Every evidence item points to a stored snapshot plus a JSON path, or a verbatim text span. `validate` re-hashes each snapshot and replays every span. On the fixture and real-site replays: 0 problems.
@@ -114,7 +116,7 @@ python3 -m norway_agent run --organisations batch.jsonl --output out/envelopes.j
 
 - **Breadth-first by source.** Collection runs identity → change events → accounts → roles → establishments → NAV jobs → websites. If a budget is hit, the tail of one source degrades; whole companies never drop. Every input still gets a terminal envelope, and the unchecked sources are marked `failed` with reason "not checked".
 - **Scale test (1,100 synthetic companies):** 3,655 requests, about 12 minutes simulated at the rate limits, 9 s of CPU. All envelopes validated.
-- **Expected live load:** about 4–6 register requests per company, 15–80 NAV feed pages per batch, and about 3–8 website requests for companies with a site.
+- **Measured live (100-company smoke test, Nov 2026):** 532 requests and about 4 minutes in total, with 0 validation problems. Expect about 3 register requests per company, 20–40 NAV feed pages per batch (185-day window, 10,000 entries per page), and 3–9 website requests for each company with a site.
 
 ## Sources and rights
 

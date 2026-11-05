@@ -43,7 +43,7 @@ class Config:
     timeout_api: float = 25.0
     timeout_web: float = 10.0
     api_attempts: int = 3
-    web_attempts: int = 1
+    web_attempts: int = 2
     max_page_bytes: int = 1_500_000
     max_api_bytes: int = 30_000_000
 
@@ -55,8 +55,8 @@ class Config:
     enable_domain_guess: bool = True      # try <name>.no when the register lists no website
 
     activity_window_days: int = 730
-    jobs_window_days: int = 120
-    jobs_page_size: int = 5000
+    jobs_window_days: int = 185  # NAV: an ad is never active for more than 6 months
+    jobs_page_size: int = 10000  # NAV maximum
     jobs_max_pages: int = 80
     jobs_time_budget_s: float = 420.0
     jobs_max_details_per_company: int = 12

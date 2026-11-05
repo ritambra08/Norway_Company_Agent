@@ -21,7 +21,7 @@ from email.utils import format_datetime
 
 from .config import Config
 from .http import BudgetExceeded, Http
-from .names import match_key
+from .names import GENERIC, match_key
 from .registry import fetch_parents_of
 from .snapshots import SnapshotStore
 from .state import CompanyState, Fetch, SourceStatus
@@ -118,19 +118,41 @@ def collect_jobs(http: Http, cfg: Config, snaps: SnapshotStore, states: list[Com
     active = {u: v for u, v in latest.items() if v["status"] == "ACTIVE"}
     meta["active_ads"] = len(active)
     by_name: dict[str, list[str]] = defaultdict(list)
+    by_token: dict[str, set[str]] = defaultdict(set)
+    ad_tokens: dict[str, frozenset] = {}
     for uid, v in active.items():
         k = match_key(v["businessName"])
         if k:
             by_name[k].append(uid)
+            toks = frozenset(k.split())
+            ad_tokens[uid] = toks
+            for t in toks:
+                by_token[t].add(uid)
 
-    # Candidates per company by registered names; then confirm by org number in the ad itself.
+    # Candidates only (never evidence): exact name, then the ad name containing every word of the
+    # company's name ("Sagen Bygg Stavanger"), then a short brand made of the company's words ("Sagen").
+    # Publication still requires the ad's own employer org number to match (below).
     cands: dict[str, list[str]] = {}
     for s in live:
-        ids: list[str] = []
+        exact, sup, sub = [], [], []
         for k in _names_for(s):
-            ids.extend(by_name.get(k, []))
+            exact.extend(by_name.get(k, []))
+            toks = k.split()
+            distinct = [t for t in toks if t not in GENERIC and len(t) >= 4 and not t.isdigit()]
+            if not distinct:
+                continue
+            pool = set.intersection(*(by_token.get(t, set()) for t in toks)) if toks else set()
+            sup.extend(sorted(pool))
+            tokset = set(toks)
+            for t in distinct:
+                for uid in by_token.get(t, ()):
+                    at = ad_tokens[uid]
+                    if at <= tokset and any(x not in GENERIC and len(x) >= 4 for x in at):
+                        sub.append(uid)
+        ids = list(dict.fromkeys(exact + sup + sub))
         if ids:
-            cands[s.orgnr] = sorted(set(ids))[: cfg.jobs_max_details_per_company]
+            cands[s.orgnr] = ids[: cfg.jobs_max_details_per_company]
+    meta["candidate_ads"] = sum(len(v) for v in cands.values())
 
     states_by = {s.orgnr: s for s in live}
     details: dict[str, list] = defaultdict(list)
@@ -166,6 +188,7 @@ def collect_jobs(http: Http, cfg: Config, snaps: SnapshotStore, states: list[Com
     parents = fetch_parents_of(http, cfg, snaps, unknown) if unknown else {}
 
     now = datetime.now(timezone.utc).isoformat()
+    meta["details_fetched"] = sum(len(v) for v in details.values())
     for s in live:
         if s.orgnr in cands and s.orgnr in details:
             subs = {u.get("organisasjonsnummer") for u in s.subunit_list()}
@@ -183,6 +206,8 @@ def collect_jobs(http: Http, cfg: Config, snaps: SnapshotStore, states: list[Com
                     s.nav_rejected += 1  # same name, different legal entity: never published
                     continue
                 s.nav_ads.append(Fetch(r, relation, ad))
+        meta["rejected_other_orgnr"] = meta.get("rejected_other_orgnr", 0)
+        meta["rejected_other_orgnr"] += s.nav_rejected
         if meta["pages"] == 0:
             s.status["nav_jobs"] = SourceStatus("failed", meta["error"] or "feed not read")
         else:

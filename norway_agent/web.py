@@ -66,7 +66,9 @@ CONTACT_PATH = re.compile(r"/(kontakt(-oss)?|contact(-us)?|om-oss|om|about(-us)?
 NO_VACANCY = re.compile(r"ingen\s+ledige\s+stillinger|har\s+(for\s+tiden\s+)?ingen\s+ledige|ingen\s+utlyste\s+"
                         r"stillinger|ingen\s+aktive\s+stillinger|no\s+(open|current)\s+(positions|vacancies|"
                         r"openings|jobs)|there\s+are\s+(currently\s+)?no\s+(open\s+)?(positions|vacancies)", re.I)
-PARKED = re.compile(r"domain(et)?\s+(is|er)\s+(for\s+sale|til\s+salgs)|buy\s+this\s+domain|this\s+domain\s+"
+PARKED = re.compile(r"\bis\s+parked\b|\bparked\s+(free|domain|by)\b|domain\s+parking|parkingcrew|sedoparking|"
+                    r"\bbodis\b|may\s+be\s+for\s+sale|domenet\s+(er\s+)?til\s+salgs|"
+                    r"domain(et)?\s+(is|er)\s+(for\s+sale|til\s+salgs)|buy\s+this\s+domain|this\s+domain\s+"
                     r"(is\s+)?(parked|registered)|domenet\s+er\s+registrert|parkert\s+domene|"
                     r"under\s+construction|kommer\s+snart|coming\s+soon|website\s+is\s+(being\s+)?"
                     r"(built|under)|account\s+suspended|default\s+web\s+site\s+page|it\s+works!", re.I)
@@ -148,16 +150,20 @@ def span(raw: str, start: int, end: int, pad: int = 60) -> str:
 
 
 def name_span(raw: str, name: str) -> str:
-    """Raw-HTML excerpt where the company name appears (title first), for evidence spans."""
-    from .names import core_tokens
-    core = core_tokens(name)
+    """Raw-HTML excerpt showing the company's required name words (title first), for evidence spans."""
+    from .names import fold, required_tokens
+    req = required_tokens(name)
     m = re.search(r"<title[^>]*>(.*?)</title>", raw, re.I | re.S)
-    if m and core and all(t.lower() in m.group(1).lower() for t in core):
+    if m and req and all(f" {t} " in f" {fold(m.group(1))} " for t in req):
         return raw[m.start():m.end()][:300]
-    for t in core:
-        i = raw.lower().find(t.lower())
-        if i >= 0:
-            return span(raw, i, i + len(t))
+    low = raw.lower()
+    first = req[0].lower() if req else ""
+    i = low.find(first) if first else -1
+    while i >= 0:
+        window = raw[max(0, i - 120):i + 200]
+        if all(f" {t} " in f" {fold(window)} " for t in req):
+            return window
+        i = low.find(first, i + 1)
     return (m.group(0)[:300] if m else raw[:200])
 
 
@@ -375,6 +381,48 @@ def _domain_and_brand_match(legal: str, url: str, doc: Doc) -> bool:
     return bool(dom_ok and btoks and btoks <= name_toks and any(len(t) >= 4 for t in btoks))
 
 
+ORG_TYPES = {"organization", "corporation", "localbusiness", "store", "restaurant", "professionalservice",
+             "homeandconstructionbusiness", "autodealer", "medicalbusiness", "legalservice", "accountingservice",
+             "financialservice", "realestateagent", "lodgingbusiness", "foodestablishment", "automotivebusiness",
+             "healthandbeautybusiness", "sportsactivitylocation"}
+
+
+def _prominent_text(pages) -> str:
+    """Where a site names itself: title, site name, description, Organization JSON-LD, h1, footer, ©-lines."""
+    parts: list[str] = []
+    for _, d in pages:
+        if d is None:
+            continue
+        parts += [d.title, d.metas.get("og:site_name", ""), d.metas.get("og:title", ""),
+                  d.metas.get("description", ""), d.metas.get("og:description", "")]
+        for obj in d.jsonld:
+            if types_of(obj) & ORG_TYPES and isinstance(obj.get("name"), str):
+                parts.append(obj["name"])
+        for tag in ("h1", "footer"):
+            for n in d.root.iter(tag):
+                parts.append(n.text()[:3000])
+        for m in re.finditer(r"(©|\(c\)|copyright)[^\n]{0,140}", d.text, re.I):
+            parts.append(m.group(0))
+    return " | ".join(p for p in parts if p)
+
+
+HOSTNAME = re.compile(r"\b[\w\-]+(?:\.[\w\-]+)*\.(?:no|com|net|org|se|dk|fi|eu|io|app|biz|info|nu|as|co|uk|de|"
+                      r"example|online|site|shop|store|tech)\b", re.I)
+
+
+def _no_hostnames(text: str) -> str:
+    return HOSTNAME.sub(" ", text or "")
+
+
+def _domain_from_name(legal: str, url: str) -> bool:
+    """The site's registrable domain label is the legal name's words joined (gangstadbygg.no for
+    GANGSTAD BYGG AS), allowing Norwegian transliterations and hyphens."""
+    label = registrable(urlsplit(url).hostname or "").split(".")[0].replace("-", "").lower()
+    if len(label) < 4:
+        return False
+    return any(c.split(".")[0].replace("-", "") == label for c in domain_candidates(legal))
+
+
 def _verify(s: CompanyState, crawler: SiteCrawler, url: str, origin: str) -> dict:
     """Fetch homepage (+ up to 2 contact/about pages) and decide the identity verdict."""
     res: dict = {"candidate": url, "origin": origin, "verdict": "failed", "pages": []}
@@ -390,7 +438,7 @@ def _verify(s: CompanyState, crawler: SiteCrawler, url: str, origin: str) -> dic
         return res
     res["home"] = r
     raw = r.text()
-    if PARKED.search(doc.text[:3000]) and len(doc.text) < 4000:
+    if PARKED.search(doc.title or "") or (PARKED.search(doc.text[:3000]) and len(doc.text) < 4000):
         res["verdict"], res["detail"] = "rejected", "placeholder or parked page"
         return res
     pat = orgnr_pattern(s.orgnr)
@@ -433,13 +481,35 @@ def _verify(s: CompanyState, crawler: SiteCrawler, url: str, origin: str) -> dic
     res["pages"] = checked
     all_text = " ".join(d.title + " " + d.metas.get("og:site_name", "") + " " + d.text for _, d in checked)
     raw_all = " ".join(x.text() for x, _ in checked)
-    name_ok = page_names_company(s.name(), all_text)
-    if not name_ok and origin != "name_guess":
-        name_ok = _domain_and_brand_match(s.name(), r.final_url, doc)
+    legal = s.name()
+    # A hostname in the text ("gangstadbygg.no is parked") is not the company naming itself.
+    name_any = page_names_company(legal, _no_hostnames(all_text))
+    name_prominent = page_names_company(legal, _no_hostnames(_prominent_text(checked)))
+    brand_dom = _domain_and_brand_match(legal, r.final_url, doc)
+    dom_from_name = _domain_from_name(legal, r.final_url) or brand_dom
     phone_m = _phone_on(raw_all, phones)
     email_ok = bool(email) and email in raw_all.lower()
+    contact = bool(phone_m or email_ok)
     directory = len(other_all) > 3
-    declared = origin != "name_guess"
+    # Only the register (or a NAV ad already tied to this org number) declares a website. An email domain
+    # is NOT a declaration: it is often an employer, accountant, property manager or service provider.
+    declared = origin in ("registry", "nav_employer_homepage")
+
+    def contact_span() -> tuple[Response, str]:
+        if phone_m:
+            sp = span(raw_all, phone_m.start(), phone_m.end())
+        else:
+            i = raw_all.lower().find(email)
+            sp = span(raw_all, i, i + len(email))
+        return next((x for x, _ in checked if sp and sp in x.text()), r), sp
+
+    def name_proof() -> tuple[Response, str]:
+        for x, _ in checked:
+            sp = name_span(x.text(), legal)
+            if sp and sp in x.text():
+                return x, sp
+        return r, name_span(r.text(), legal)
+
     if hit and not directory:
         resp, m, raw_hit = hit
         res.update(verdict="verified", method="org_number_on_site", confidence=0.98, proof=resp,
@@ -448,35 +518,40 @@ def _verify(s: CompanyState, crawler: SiteCrawler, url: str, origin: str) -> dic
         res.update(verdict="other_entity" if declared else "rejected",
                    detail="site shows a different organisation number: " + ", ".join(sorted(other_all)[:3]),
                    other_orgnrs=sorted(other_all))
-    elif declared and (name_ok or phone_m or email_ok):
-        proof = "name" if name_ok else ("phone" if phone_m else "email")
-        sp = ""
-        home_raw = r.text()
-        if proof == "phone" and phone_m:
-            sp = span(raw_all, phone_m.start(), phone_m.end())
-        elif proof == "email":
-            i = raw_all.lower().find(email)
-            sp = span(raw_all, i, i + len(email))
-        else:
-            sp = name_span(home_raw, s.name())
-        res.update(verdict="verified", method=f"declared_by_{origin}+{proof}_on_site", confidence=0.92,
-                   proof=r if proof == "name" else checked[0][0], span=sp)
-        if proof in ("phone", "email"):
-            # find the page that actually contains the span
-            for x, _ in checked:
-                if sp and sp in x.text():
-                    res["proof"] = x
-                    break
-    elif not declared and name_ok and (phone_m or email_ok):
-        sp = span(raw_all, phone_m.start(), phone_m.end()) if phone_m else email
-        prf = next((x for x, _ in checked if sp in x.text()), r)
-        res.update(verdict="verified", method="name_guess+name_and_contact_on_site", confidence=0.9, proof=prf,
+    elif declared and (name_prominent or brand_dom):
+        prf, sp = name_proof()
+        res.update(verdict="verified", method=f"declared_by_{origin}+name_on_site", confidence=0.92, proof=prf,
                    span=sp)
+    elif declared and name_any and contact:
+        prf, sp = contact_span()
+        res.update(verdict="verified", method=f"declared_by_{origin}+name_and_contact_on_site", confidence=0.9,
+                   proof=prf, span=sp)
+    elif origin == "registered_email_domain" and dom_from_name and (name_prominent or brand_dom or (name_any and contact)):
+        # The company's own registered email uses a domain named after it: strong enough with the name shown.
+        if contact:
+            prf, sp = contact_span()
+        else:
+            prf, sp = name_proof()
+        res.update(verdict="verified", method=f"{origin}+domain_matches_legal_name+name_on_site", confidence=0.9,
+                   proof=prf, span=sp)
+    elif origin == "name_guess" and name_any and contact:
+        # A guessed domain needs the name AND the company's registered phone or email on the site
+        # (namesakes are common), unless the org number itself is shown (handled above).
+        if contact:
+            prf, sp = contact_span()
+        else:
+            prf, sp = name_proof()
+        res.update(verdict="verified", method="name_guess+name_and_registered_contact_on_site", confidence=0.9,
+                   proof=prf, span=sp)
     elif declared:
-        res.update(verdict="unconfirmed", detail="site reachable but shows neither the org number, the "
-                                                 "company name nor its registered phone/email")
+        res.update(verdict="unconfirmed", detail="site reachable but does not show the org number, and the "
+                                                 "company name is not in its title, headings or footer")
     else:
-        res.update(verdict="rejected", detail="guessed domain does not prove this company")
+        why = {"registered_email_domain": "the registered email's domain is not named after this company and "
+                                          "the site does not show its org number (likely an employer, "
+                                          "accountant or manager)",
+               "name_guess": "guessed domain does not prove this company"}.get(origin, "candidate not proven")
+        res.update(verdict="rejected", detail=why)
     return res
 
 
@@ -516,11 +591,7 @@ def _org_jsonld(pages) -> tuple[dict | None, Response | None]:
         if d is None:
             continue
         for obj in d.jsonld:
-            t = types_of(obj)
-            if t & {"organization", "corporation", "localbusiness", "store", "restaurant", "professionalservice",
-                    "homeandconstructionbusiness", "autodealer", "medicalbusiness", "legalservice",
-                    "accountingservice", "financialservice", "realestateagent", "lodgingbusiness",
-                    "foodestablishment", "automotivebusiness", "healthandbeautybusiness", "sportsactivitylocation"}:
+            if types_of(obj) & ORG_TYPES:
                 return obj, r
     return None, None
 
@@ -692,13 +763,14 @@ def crawl_company(http: Http, cfg: Config, snaps: SnapshotStore, robots_cache: d
             verified = v
             break
     if not verified:
-        declared = [a for a in w["attempts"] if a["origin"] != "name_guess"]
+        declared = [a for a in w["attempts"] if a["origin"] in ("registry", "nav_employer_homepage")]
         verdicts = [a["verdict"] for a in declared]
         if not declared:
-            tried = ", ".join(a["candidate"] for a in w["attempts"]) or "none"
-            s.status["website"] = SourceStatus("not_found", "no website declared in the register, on NAV ads or by "
-                                                            f"a company email domain; name-based candidates ({tried}) "
-                                                            "did not prove this company")
+            tried = "; ".join(f"{a['candidate']} ({a['origin']}): {a.get('detail') or a['verdict']}"
+                              for a in w["attempts"]) or "none"
+            s.status["website"] = SourceStatus("not_found", "no website declared in the register or on a NAV ad "
+                                                            f"for this org number; other candidates did not prove "
+                                                            f"this company: {tried}")
             return
         if "other_entity" in verdicts or "unconfirmed" in verdicts:
             s.status["website"] = SourceStatus("ambiguous", "; ".join(a.get("detail", "") for a in declared
