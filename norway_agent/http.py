@@ -12,6 +12,7 @@ import hashlib
 import json
 import random
 import re
+import socket
 import threading
 import time
 import urllib.error
@@ -25,6 +26,16 @@ from urllib.parse import urljoin, urlsplit
 from .config import Config
 
 RETRY_STATUS = {429, 502, 503, 504}
+
+
+def _permanent_network_error(e: BaseException) -> bool:
+    """Errors that a retry cannot fix: the host name does not exist, the certificate is invalid,
+    the port is closed, or the URL itself is malformed. Retrying these only burns time and budget
+    (most come from guessed domains that were never registered)."""
+    reason = getattr(e, "reason", e)
+    if isinstance(reason, socket.gaierror):
+        return getattr(reason, "errno", None) != getattr(socket, "EAI_AGAIN", object())
+    return isinstance(reason, (ConnectionRefusedError, ValueError))  # ValueError covers SSL cert errors
 
 
 class BudgetExceeded(RuntimeError):
@@ -231,6 +242,8 @@ class Http:
                     last_err = f"network error: {getattr(e, 'reason', e)}"
                     status, rh, raw = 0, {}, b""
                     self.errors += 1
+                    if is_web and _permanent_network_error(e):
+                        break
                     if attempt + 1 < attempts:
                         self._sleep(min(1.0 * (2 ** attempt) + random.random(), 8.0))
                     continue

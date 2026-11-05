@@ -367,5 +367,40 @@ class UnitTest(unittest.TestCase):
         self.assertEqual(web._date("March 5, 2026"), "2026-03-05")
 
 
+class RetryTest(unittest.TestCase):
+    """A guessed domain that does not exist must fail at once on the web lane (no wasted retry),
+    while register/NAV calls keep retrying transient network errors."""
+
+    def _http(self, exc):
+        import urllib.error
+        from norway_agent.http import Http
+        calls = []
+
+        def opener(url, headers, timeout, max_bytes):
+            calls.append(url)
+            raise urllib.error.URLError(exc)
+        cfg = Config(max_requests=100)
+        return Http(cfg, opener=opener, sleep=lambda s: None), calls
+
+    def test_dns_failure_not_retried_on_web(self):
+        import socket
+        http, calls = self._http(socket.gaierror(socket.EAI_NONAME, "Name or service not known"))
+        r = http.get("https://does-not-exist-example.no/", lane="web")
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(r.status, 0)
+        self.assertIn("network error", r.error)
+
+    def test_timeout_still_retried_on_web(self):
+        http, calls = self._http(TimeoutError("timed out"))
+        http.get("https://slow.example.no/", lane="web")
+        self.assertEqual(len(calls), Config().web_attempts)
+
+    def test_api_lane_keeps_retrying(self):
+        import socket
+        http, calls = self._http(socket.gaierror(socket.EAI_NONAME, "Name or service not known"))
+        http.get("https://data.brreg.no/enhetsregisteret/api/enheter/123456785", lane="brreg")
+        self.assertEqual(len(calls), Config().api_attempts)
+
+
 if __name__ == "__main__":
     unittest.main()

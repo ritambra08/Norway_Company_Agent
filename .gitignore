@@ -6,3 +6,4 @@ out/
 smoke/
 signalpost-universe.jsonl.gz
 *.tmp
+scale/

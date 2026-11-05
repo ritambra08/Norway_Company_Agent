@@ -38,8 +38,8 @@ class Config:
     api_rps: float = 8.0           # data.brreg.no (no published limit; stay courteous)
     nav_rps: float = 4.0
     web_host_interval: float = 1.0  # seconds between requests to the same website host
-    api_workers: int = 6
-    web_workers: int = 16
+    api_workers: int = 12         # parallel register calls; the api_rps cap above still applies
+    web_workers: int = 40         # companies crawled in parallel; each host still gets web_host_interval
     timeout_api: float = 25.0
     timeout_web: float = 10.0
     api_attempts: int = 3
