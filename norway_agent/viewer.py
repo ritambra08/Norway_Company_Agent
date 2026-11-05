@@ -12,6 +12,7 @@ import json
 import re
 from pathlib import Path
 
+from . import jsonl
 from .summary import money
 
 KEY_FIELDS = ["legal_name", "industry", "business_address", "annual_accounts_latest", "leadership",
@@ -150,7 +151,7 @@ def write_cards(envs: list[dict], path: Path) -> list[dict]:
     cards = [card(e) for e in envs]
     with Path(path).open("w", encoding="utf-8") as fh:
         for c in cards:
-            fh.write(json.dumps(c, ensure_ascii=False) + "\n")
+            fh.write(jsonl.dumps(c) + "\n")
     return cards
 
 
@@ -165,10 +166,10 @@ def _font(weight: int) -> str:
 def write_viewer(cards: list[dict], report: dict, path: Path) -> None:
     """Single-file offline site: find, compare two, and open the source behind every fact.
     Public Sans (SIL OFL 1.1, see assets/PUBLIC_SANS_OFL.txt) is embedded so it renders the same offline."""
-    data = json.dumps({"cards": cards, "report": {k: report.get(k) for k in
+    data = jsonl.dumps({"cards": cards, "report": {k: report.get(k) for k in
                                                   ("run_id", "completed_at", "status_counts", "coverage_by_family",
                                                    "envelopes_written", "requests")}},
-                      ensure_ascii=False, separators=(",", ":")).replace("</", "<\\/")
+                       separators=(",", ":")).replace("</", "<\\/")
     html_text = (ASSETS / "viewer.html").read_text(encoding="utf-8")
     for w in (400, 600, 800):
         html_text = html_text.replace(f"__F{w}__", _font(w))

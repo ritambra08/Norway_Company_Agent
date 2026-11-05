@@ -11,7 +11,7 @@ from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import __version__, orgnr as orgnr_mod
+from . import __version__, jsonl, orgnr as orgnr_mod
 from .claims import FIELDS, Builder
 from .config import Config
 from .envelope import AGENT, assemble
@@ -36,13 +36,13 @@ def _load_previous(path: Path | None) -> dict[str, dict]:
     if not path or not Path(path).exists():
         return {}
     out = {}
-    for line in Path(path).read_text(encoding="utf-8").splitlines():
-        if line.strip():
-            try:
-                e = json.loads(line)
-                out[e["organisation_number"]] = e
-            except (ValueError, KeyError):
-                continue
+    for line in jsonl.lines(Path(path).read_text(encoding="utf-8")):
+        try:
+            e = json.loads(line)
+            out[e["organisation_number"]] = e
+        except (ValueError, KeyError):
+            log(f"previous envelopes: skipped an unreadable line in {path}")
+            continue
     return out
 
 
@@ -133,7 +133,7 @@ def run(batch: str, output: Path, report_path: Path, run_id: str, cfg: Config, p
     tmp = output.with_suffix(".tmp")
     with tmp.open("w", encoding="utf-8") as fh:
         for env in envs:
-            fh.write(json.dumps(env, ensure_ascii=False) + "\n")
+            fh.write(jsonl.dumps(env) + "\n")
     tmp.replace(output)
 
     report = make_report(envs, states, inputs, dups, http, cfg, run_id, started, completed, nav_meta, web_stats,

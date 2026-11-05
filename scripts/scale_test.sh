@@ -4,22 +4,25 @@
 # submission/.
 #   ./scripts/scale_test.sh            # 1,000 companies
 #   N=1100 ./scripts/scale_test.sh     # the size the official batch may grow to
+#   SKIP_RUN=1 ./scripts/scale_test.sh # re-validate and summarise the last scale/ run without rerunning
 set -euo pipefail
 DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$DIR"
 N="${N:-1000}"
 SEED="${SEED:-20261106}"
 UNIVERSE="${UNIVERSE:-signalpost-universe.jsonl.gz}"
-if [ ! -f "$UNIVERSE" ]; then
+if [ "${SKIP_RUN:-0}" != "1" ] && [ ! -f "$UNIVERSE" ]; then
   curl -fL 'https://builderr.ai/signalpost-company-universe-2025.jsonl.gz' -o "$UNIVERSE"
 fi
-rm -rf scale
-python3 scripts/select_entry_batch.py --universe "$UNIVERSE" --count "$N" --seed "$SEED" \
-  --output scale/companies.jsonl
-python3 -m norway_agent run --organisations scale/companies.jsonl --output scale/envelopes.jsonl \
-  --report scale/run-report.json --run-id "scale-$(date -u +%Y%m%dT%H%M%SZ)" --expected-count "$N"
+if [ "${SKIP_RUN:-0}" != "1" ]; then
+  rm -rf scale
+  python3 scripts/select_entry_batch.py --universe "$UNIVERSE" --count "$N" --seed "$SEED" \
+    --output scale/companies.jsonl
+  python3 -m norway_agent run --organisations scale/companies.jsonl --output scale/envelopes.jsonl \
+    --report scale/run-report.json --run-id "scale-$(date -u +%Y%m%dT%H%M%SZ)" --expected-count "$N"
+fi
 python3 -m norway_agent validate --output scale/envelopes.jsonl --organisations scale/companies.jsonl \
-  > scale/validate.txt
+  > scale/validate.txt 2>&1 || true
 python3 - <<'PY'
 import json
 r = json.load(open("scale/run-report.json"))

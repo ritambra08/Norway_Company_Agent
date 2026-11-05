@@ -6,7 +6,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import __version__
+from . import __version__, jsonl
 from .config import Config
 from .pipeline import run
 from .validate import validate
@@ -58,7 +58,7 @@ def cmd_validate(a) -> int:
 
 def cmd_viewer(a) -> int:
     from .viewer import write_viewer
-    cards = [json.loads(l) for l in Path(a.profiles).read_text(encoding="utf-8").splitlines() if l.strip()]
+    cards = jsonl.read(a.profiles)
     report = json.loads(Path(a.report).read_text(encoding="utf-8")) if a.report and Path(a.report).exists() else {}
     write_viewer(cards, report, Path(a.html))
     print(f"Wrote {a.html} ({len(cards)} companies).")

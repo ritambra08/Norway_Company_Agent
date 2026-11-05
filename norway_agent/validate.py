@@ -10,6 +10,7 @@ import hashlib
 import json
 from pathlib import Path
 
+from . import jsonl
 from .claims import STATES, canon, jpath_get
 from .inputs import read_batch
 from .snapshots import read_snapshot
@@ -21,7 +22,7 @@ FIN_FIELDS = {"revenue", "operating_result", "profit_before_tax", "net_result", 
 def validate(envelopes_path: Path, batch_path: str | None = None) -> tuple[int, list[str], dict]:
     envelopes_path = Path(envelopes_path)
     out_dir = envelopes_path.parent
-    envs = [json.loads(l) for l in envelopes_path.read_text(encoding="utf-8").splitlines() if l.strip()]
+    envs = jsonl.read(envelopes_path)
     problems: list[str] = []
     stats = {"envelopes": len(envs), "claims": 0, "available_claims": 0, "evidence_checked": 0, "spans_replayed": 0}
     seen = set()

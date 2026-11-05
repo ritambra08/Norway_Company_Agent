@@ -13,6 +13,7 @@ import json
 import threading
 from pathlib import Path
 
+from . import jsonl
 from .http import Response
 
 
@@ -38,11 +39,11 @@ class SnapshotStore:
                 tmp.write_bytes(buf.getvalue())
                 tmp.replace(path)
             with self.index_path.open("a", encoding="utf-8") as fh:
-                fh.write(json.dumps({
+                fh.write(jsonl.dumps({
                     "sha256": sha, "url": resp.url, "final_url": resp.final_url, "status": resp.status,
                     "retrieved_at": resp.retrieved_at, "content_type": resp.content_type,
                     "bytes": len(resp.body), "redirects": resp.redirects, "path": rel,
-                }, ensure_ascii=False) + "\n")
+                }) + "\n")
         resp.snapshot = rel
         return rel
 

@@ -64,6 +64,19 @@ class ContractTest(unittest.TestCase):
                 self.assertIn(k, e)
             self.assertEqual(e["operations"]["third_party_cost_usd"], 0)
 
+    def test_output_lines_survive_unicode_line_separators(self):
+        # The Fjordtech page carries U+2028 and U+0085 (as real sites do); evidence spans copy them.
+        out = self.tmp / "out"
+        for name in ("envelopes.jsonl", "profiles.jsonl"):
+            raw = (out / name).read_text(encoding="utf-8")
+            for ch in (" ", " ", "\x85"):
+                self.assertNotIn(ch, raw, f"raw line separator in {name}")
+            self.assertEqual(len(raw.splitlines()), 14)
+        spans = json.dumps([e.get("claim_span") for e in self.envs[fx.A]["evidence"]], ensure_ascii=False)
+        self.assertIn(" ", spans)  # the character itself is preserved, only escaped on disk
+        n, problems, _ = validate(out / "envelopes.jsonl")
+        self.assertEqual((n, problems), (14, []))
+
     def test_invalid_and_unknown_numbers_are_explicit(self):
         self.assertEqual(self.envs["123456789"]["status"], "not_available")
         self.assertIn("not a valid", self.envs["123456789"]["errors"][0]["message"])

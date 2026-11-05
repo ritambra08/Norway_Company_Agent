@@ -7,7 +7,7 @@ import json
 import re
 from pathlib import Path
 
-from . import orgnr as orgnr_mod
+from . import jsonl, orgnr as orgnr_mod
 
 _KEYS = ("organisation_number", "organization_number", "organisasjonsnummer", "orgnr", "org_nr",
          "org_number", "orgNummer", "organisationNumber", "id")
@@ -39,10 +39,10 @@ def read_batch(path: str) -> tuple[list[str], list[str]]:
             data = json.loads(text)
             data = data if isinstance(data, list) else [data]
         except ValueError:
-            data = [json.loads(line) for line in text.splitlines() if line.strip()]
+            data = [json.loads(line) for line in jsonl.lines(text)]
         found = [_from_obj(x) for x in data]
     else:
-        lines = text.splitlines()
+        lines = [line.rstrip("\r") for line in text.split("\n")]
         for i, line in enumerate(lines):
             if not line.strip() or line.lstrip().startswith("#"):
                 continue

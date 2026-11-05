@@ -155,7 +155,7 @@ ACCOUNTS = {
 
 
 HOME_A = f"""<!doctype html><html lang="nb"><head><meta charset="utf-8"><title>Fjordtech – programvare fra Bergen</title>
-<meta name="description" content="Fjordtech lager skreddersydd programvare for havbruk og energi.">
+<meta name="description" content="Fjordtech lager skreddersydd programvare for havbruk og energi">
 <meta property="og:site_name" content="Fjordtech">
 <link rel="alternate" type="application/rss+xml" href="/feed.xml">
 <script type="application/ld+json">{{"@context":"https://schema.org","@type":"Organization","name":"Fjordtech",
@@ -163,7 +163,7 @@ HOME_A = f"""<!doctype html><html lang="nb"><head><meta charset="utf-8"><title>F
 "postalCode":"5003","addressLocality":"Bergen","addressCountry":"NO"}}}}</script></head>
 <body><nav><a href="/om-oss">Om oss</a> <a href="/karriere">Ledige stillinger</a> <a href="/nyheter">Nyheter</a></nav>
 <main><h1>Programvare for havet</h1></main>
-<footer>Fjordtech AS · Org.nr: {fmt(A)} · <a href="mailto:post@fjordtech.example">post@fjordtech.example</a>
+<footer>Fjordtech AS · Org.nr: {fmt(A)}· <a href="mailto:post@fjordtech.example">post@fjordtech.example</a>
 <a href="tel:+4755123456">55 12 34 56</a>
 <a href="https://www.linkedin.com/company/fjordtech/">LinkedIn</a>
 <a href="https://www.facebook.com/fjordtech">Facebook</a>
