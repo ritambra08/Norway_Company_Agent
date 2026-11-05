@@ -56,6 +56,15 @@ def cmd_validate(a) -> int:
     return 1 if problems else 0
 
 
+def cmd_viewer(a) -> int:
+    from .viewer import write_viewer
+    cards = [json.loads(l) for l in Path(a.profiles).read_text(encoding="utf-8").splitlines() if l.strip()]
+    report = json.loads(Path(a.report).read_text(encoding="utf-8")) if a.report and Path(a.report).exists() else {}
+    write_viewer(cards, report, Path(a.html))
+    print(f"Wrote {a.html} ({len(cards)} companies).")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="norway_agent", description="Signalpost Norwegian company agent")
     ap.add_argument("--version", action="version", version=__version__)
@@ -86,5 +95,10 @@ def main(argv: list[str] | None = None) -> int:
     v.add_argument("--out", "-o")
     v.add_argument("--organisations", help="batch file, to check one envelope per input")
     v.set_defaults(fn=cmd_validate)
+    w = sub.add_parser("viewer", help="rebuild the offline viewer (index.html) from an existing profiles.jsonl")
+    w.add_argument("--profiles", default="submission/profiles.jsonl")
+    w.add_argument("--report", default="submission/run-report.json")
+    w.add_argument("--html", default="submission/index.html")
+    w.set_defaults(fn=cmd_viewer)
     a = ap.parse_args(argv)
     return a.fn(a)

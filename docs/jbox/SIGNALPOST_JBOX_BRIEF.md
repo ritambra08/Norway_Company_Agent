@@ -74,13 +74,50 @@ In plain words:
 
 Include a small table explaining the six states.
 
-DESIGN AND QUALITY
-- Clean, calm and trustworthy. A white or very light background, one blue accent (#123EAA), green for "Found", amber for "Unclear match" and "Blocked", and grey for "Not found". System font stack. Dark mode.
-- Mobile-first: test at 360 px wide. A bottom compare tray and bottom-sheet drawers on phones. Tap targets at least 44 px.
-- Money format: "NOK 15.0 m", "NOK 1.2 bn", "NOK 850 k", and negatives as "NOK −2.2 m". Dates like "5 Nov 2026".
-- Fast: skeleton loaders, the home page under 300 KB of data, and no layout jumps.
-- Accessible: labelled inputs and buttons, keyboard navigation everywhere, visible focus rings, colour never the only signal, and AA contrast.
-- A favicon and Open Graph meta tags (title, description, preview image) on every page, so shared links look good.
-- Footer on every page: "Data: Brønnøysundregistrene (NLOD 2.0), NAV job vacancy feed, companies' own websites. Every fact links to its source. Built with JBOX."
+DESIGN SYSTEM: follow the attached target-*.png screenshots closely. They are the exact design to reproduce, on desktop and phone.
+- Typeface: Public Sans (Google Fonts) at weights 400, 600 and 800, for everything. Use tabular numerals for figures. Headlines are 800 weight with slightly tight letter-spacing, and text-wrap: balance.
+- Colours (light mode):
+  - paper #F5F7FA (page background), surface #FFFFFF, ink #14233A (text), muted #55667C, faint #8494A8, line #DCE3EC, mist #EAF0F7;
+  - fjord blue #1F5FA8 for links, buttons and focus;
+  - pine #2E7D5B for "Found" and filed accounts, amber #9A5A00 for "Unclear match" and "Blocked", red #B3261E for bankrupt;
+  - green-tinted quote background #E5F3EC.
+  Dark mode: paper #0D1625, surface #131F32, ink #E7EDF5, muted #A3B2C5, line #25344A, fjord #86B5F2, pine #72C99F.
+- Signature element, "source marks": a small pill-shaped button with a 1.5 px outline in its colour and 2–3 letters:
+  - ER = Enhetsregisteret, fjord blue;
+  - RR = Regnskapsregisteret, pine green;
+  - NAV = the NAV job feed, amber;
+  - WEB = the company's own website, violet #6E5BB0.
 
-Use the attached screenshots as a reference for the information layout only. Make the design noticeably more polished than them.
+  Pick the mark from each evidence item's source name s. Put the marks at the right end of every fact row, every key-figure cell and every compare cell. Selecting a mark opens the source extract. The marks are the visual identity of the site, so keep everything around them quiet.
+- Home hero: on the left, the headline "Check a Norwegian company, fact by fact." (about 58 px on desktop), the lead text, and a large search box (58 px tall, soft shadow). On the right, a "specimen" card for the company with the most data found:
+  - three rows (Revenue, Chief executive, Business address), each with its source mark;
+  - below them, an open extract showing the revenue evidence: "Operating revenue in the filed accounts, Regnskapsregisteret", the exact value (for example "NOK 540 691"), and the retrieved date;
+  - caption: "Every fact has a source mark. Select one to see the original."
+  One subtle unfold animation on page load is the only decorative motion; respect prefers-reduced-motion.
+- Directory: one bordered list with thin row dividers, not separate cards. Desktop columns: Company (name, with the org number and badges underneath) | City | Industry | Revenue (right-aligned, year underneath) | Data found (thin bar and %) | a Compare toggle button. On phones each row shows the name, org number, badges and revenue, with Compare on the right.
+- Compare tray: a dark ink pill fixed at the bottom centre showing the picked names (each with ×) and a blue "Compare now" button.
+- Company page:
+  - a 64 px rounded-square monogram tile (two initials, ink background, white letters) beside the big company name, with a line underneath: "Org. nr 827340162 Copy", the legal form in plain English, the city and a status pill;
+  - "Add to compare" (blue) and "Copy link" buttons on the right;
+  - the key figures as ONE bordered strip divided into 5 cells: Revenue (with ▲/▼ change), Net result, Employees, Website, Chief executive. On phones it becomes a 2-column grid;
+  - then the summary card, the revenue bar chart, and the 7 sections as label | value | marks rows;
+  - a sticky right column, "Jump to an answer", holding the question buttons and a small "Not found for this company" box. On phones it becomes a horizontally scrolling row of buttons above the sections.
+- Source extract: a 460 px right-side panel on desktop, or a bottom sheet with a grab handle on phones. The title is "Source extract", with the fact label, company and value underneath. Then one block per evidence item:
+  - order: the actual value first; currency, accounting period and accounts type last;
+  - heading: what the item is (Operating revenue, Currency, Accounting period …; see DATA_SPEC.md);
+  - the value in the green-tinted quote block, shown readably (numbers as "540 691", periods as "2025-01-01 to 2025-12-31", JSON strings without quotes);
+  - then Source, Retrieved ("5 Nov 2026 at 15:44 UTC"), Found at, and Fingerprint (sha256 prefix);
+  - finally the "Open the original source" link with an external-link icon.
+- Compare page:
+  - the title "Compare two companies", two search pickers and a round swap button;
+  - a table with grouped rows (Identity, Money, People and places, Online and activity) and a sticky row of company names;
+  - the higher revenue, net result and equity shown in bold, and source marks in each cell;
+  - a grouped revenue bar chart below.
+- Copy: sentence case everywhere, with no all-caps labels. Use plain English. State labels are Found / Not found / Unclear match / Blocked by the site / Couldn't check / Doesn't apply, always followed by the reason.
+- Quality:
+  - mobile-first (test at 360 px), tap targets of at least 44 px, no horizontal scrolling;
+  - visible focus rings, keyboard navigation, Esc closes the drawer, AA contrast;
+  - skeleton loaders while data loads, and no layout jumps;
+  - money formatted as "NOK 15.0 m" / "NOK 1.2 bn" / "NOK 850 k" / "NOK −2.2 m", and dates as "5 Nov 2026";
+  - a favicon and Open Graph tags on every page;
+  - this footer on every page: "Data: Brønnøysundregistrene (NLOD 2.0), NAV job vacancy feed, companies' own websites. Every fact links to its source. Built with JBOX."

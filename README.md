@@ -19,6 +19,7 @@ python3 -m norway_agent run --organisations batch.jsonl --output out/envelopes.j
 - **Install step:** none. `uv sync` also works and installs nothing.
 - **Try it:** `./run.sh examples/sample-batch.jsonl out`, then open `out/index.html`.
 - **Self-check:** `python3 -m norway_agent validate --output out/envelopes.jsonl --organisations batch.jsonl`.
+- **Rebuild only the viewer** from an existing run (no crawling): `python3 -m norway_agent viewer --profiles submission/profiles.jsonl --report submission/run-report.json --html submission/index.html`.
 - **Smoke test (100 companies from the official universe):** `make smoke`. Results are written to `submission/`.
 
 ### Outputs (`out/`)
@@ -28,7 +29,7 @@ python3 -m norway_agent run --organisations batch.jsonl --output out/envelopes.j
 | `envelopes.jsonl` | One envelope per input, in input order (the scored output; schema below). |
 | `run-report.json` | Requests by source, runtime, p50/p95 per-company latency, cost ($0), coverage per field family and per field, changes by type, and the one-envelope-per-input check. |
 | `profiles.jsonl` | Flattened profile cards for user interfaces (the JBOX site reads this file). |
-| `index.html` | Offline viewer: search, filter, sort, compare up to 3 companies, and open the evidence behind every fact. Works on desktop and mobile. |
+| `index.html` | Offline Signalpost site in one file: instant search, filters, a company page with key figures and a revenue chart, compare two companies, and a source mark (ER, RR, NAV, WEB) on every fact that opens its source extract. Works on desktop and phone, in light and dark mode, with no network. |
 | `snapshots/` | Immutable gzip snapshots of every response, plus `index.jsonl` (URL, status, time, hash). |
 | `previous-envelopes.jsonl` | The previous run, kept when a rerun overwrites `envelopes.jsonl`. |
 

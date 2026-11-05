@@ -47,4 +47,5 @@
 ## Licences of included code
 
 - `scripts/select_entry_batch.py` is copied unchanged from the Builderr Signalpost starter kit (MIT License, © 2026 builderr).
+- `norway_agent/assets/public-sans-*.woff2` is Public Sans (© The Public Sans Project Authors), used under the SIL Open Font License 1.1 (`norway_agent/assets/PUBLIC_SANS_OFL.txt`). It is embedded in the offline viewer.
 - All other code belongs to this repository.

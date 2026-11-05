@@ -61,6 +61,52 @@ Each line of `profiles.jsonl` is one company record. The live file is at
 | `l` | Location inside the source (JSON path or extraction method) |
 | `p` | `1` = from the previous run |
 
+### Labelling and ordering evidence in the source extract
+
+Name each evidence item by the last segment of its location `l`:
+
+| `l` ends with | Label |
+|---|---|
+| `sumDriftsinntekter` | Operating revenue |
+| `driftsresultat` | Operating result |
+| `ordinaertResultatFoerSkattekostnad` | Result before tax |
+| `aarsresultat` | Net result for the year |
+| `sumEiendeler` | Total assets |
+| `sumEgenkapital` | Total equity |
+| `sumGjeld` | Total liabilities |
+| `loennskostnad` | Personnel costs |
+| `valuta` | Currency |
+| `regnskapsperiode` | Accounting period |
+| `regnskapstype` | Accounts type (company or group) |
+| `navn` | Name |
+| `person.navn` | Person |
+| `enhet.navn` | Organisation |
+| `organisasjonsnummer` | Organisation number |
+| `forretningsadresse` | Business address |
+| `postadresse` | Postal address |
+| `naeringskode1` | Primary industry |
+| `antallAnsatte` | Employee count |
+| `stiftelsesdato` | Founding date |
+| `registreringsdatoEnhetsregisteret` | Registration date |
+| `hjemmeside` | Website in the register |
+| `konkurs` | Bankruptcy flag |
+| `underAvvikling` | Liquidation flag |
+| `kapital` | Share capital |
+| `erIKonsern` | Group membership |
+| `historiskeNavn` | Former names |
+| `sisteInnsendteAarsregnskap` | Latest accounts submitted |
+| `totalElements` | Number registered |
+| anything else, including text spans such as "identity proof: org_number_on_site" | Use `l` with its first letter capitalised |
+
+- **Order:** show items whose `l` ends with `.valuta`, `.regnskapsperiode` or `.regnskapstype` last, so the actual value comes first.
+- **Showing `x`:** if it parses as JSON, show it readably:
+  - numbers as `540 691`;
+  - strings without quotes;
+  - `{fraDato, tilDato}` as "2025-01-01 to 2025-12-31";
+  - `{kode, beskrivelse}` as "beskrivelse (kode)";
+  - person names as "first middle last";
+  - addresses as "street, postcode city".
+
 ## Value shapes (for facts where `text` is empty)
 
 | Field | Shape |

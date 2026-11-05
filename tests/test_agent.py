@@ -239,6 +239,19 @@ class ContractTest(unittest.TestCase):
         self.assertIn("First profile", s["what_changed"])
         self.assertIn("legal_name", s["based_on_fields"])
 
+    def test_viewer_is_self_contained_and_rebuildable(self):
+        from norway_agent.cli import main
+        out = self.tmp / "out"
+        html_text = (out / "index.html").read_text()
+        self.assertIn('font-family:"Public Sans";src:url(data:font/woff2;base64,', html_text)
+        self.assertNotIn("__F400__", html_text)
+        self.assertIn("Source extract", html_text)
+        self.assertNotIn("http://fonts", html_text)  # works offline
+        rebuilt = out / "rebuilt.html"
+        self.assertEqual(main(["viewer", "--profiles", str(out / "profiles.jsonl"), "--report",
+                               str(out / "run-report.json"), "--html", str(rebuilt)]), 0)
+        self.assertIn("FJORDTECH AS", rebuilt.read_text())
+
     def test_outputs_written(self):
         out = self.tmp / "out"
         self.assertTrue((out / "index.html").exists())
