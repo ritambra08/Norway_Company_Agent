@@ -152,6 +152,7 @@ class ContractTest(unittest.TestCase):
         self.assertIn("https://www.facebook.com/fjordtech", urls)
         self.assertIn("https://www.youtube.com/@fjordtech", urls)
         self.assertFalse(any("sharer" in u or "intent" in u for u in urls))
+        self.assertFalse(any(u.endswith("/wix") or "webbyraaet" in u for u in urls))  # builder / agency links
 
     def test_parent_site_is_ambiguous_not_merged(self):
         c = self.envs[fx.C]
@@ -220,6 +221,8 @@ class ContractTest(unittest.TestCase):
         self.assertIn("Backend-utvikler", titles)              # JSON-LD JobPosting on careers page
         self.assertIn("Product Designer", titles)              # ATS link on careers page
         self.assertNotIn("Lagerarbeider (vikar)", titles)      # posting for another employer
+        for junk in ("Hopp til innhold", "Se våre ledige stillinger", "Slik er det å jobbe i Fjordtech"):
+            self.assertNotIn(junk, titles)                     # navigation / text about working there
         rel = {j["title"]: j.get("relation") for j in jobs}
         self.assertEqual(rel["Konsulent Oslo"], "establishment")
         self.assertTrue(claim(a, "hiring_signal")["value"]["hiring"])
@@ -378,6 +381,108 @@ class UnitTest(unittest.TestCase):
         self.assertEqual(web._date("Mon, 01 Jan 2018 10:00:00 +0000"), "2018-01-01")
         self.assertEqual(web._date("03.04.2025"), "2025-04-03")
         self.assertEqual(web._date("March 5, 2026"), "2026-03-05")
+
+
+def _page(url: str, html: str):
+    from norway_agent.htmlparse import parse
+    from norway_agent.http import Response
+    return (Response(url=url, final_url=url, status=200, headers={"content-type": "text/html"},
+                     body=html.encode(), retrieved_at="2026-11-06T00:00:00Z", sha256="x"), parse(html))
+
+
+class DerivedFactsTest(unittest.TestCase):
+    """Facts read off a verified website must belong to the company, not to its website builder,
+    web agency, careers-page navigation or parent group (cases seen in the 1,000-company run)."""
+
+    def test_social_profiles_must_carry_the_company_name(self):
+        home = "https://www.solhjem.example/"
+        html = """<html><body>
+        <a href="https://www.facebook.com/wix">Wix</a> <a href="https://www.twitter.com/wix">t</a>
+        <a href="https://www.linkedin.com/company/wix-com">in</a>
+        <a href="https://www.facebook.com/maxroyreklameogmedia">Nettside levert av Maxroy</a>
+        <a href="https://www.facebook.com/policy.php">Policy</a> <a href="https://x.com/privacy">Privacy</a>
+        <a href="https://www.facebook.com/SolHjemEiendom">Facebook</a>
+        <a href="https://instagram.com/sol_hjem">Instagram</a> <a href="https://www.instagram.com/sol_hjem/">dup</a>
+        <a href="https://www.linkedin.com/company/12345678/admin">LinkedIn</a>
+        </body></html>"""
+        out = web._socials([_page(home, html)], home, ["SOL-HJEM AS"], "solhjem")
+        urls = sorted(i["url"] for items in out.values() for i in items)
+        self.assertEqual(urls, ["https://instagram.com/sol_hjem", "https://www.facebook.com/SolHjemEiendom",
+                                "https://www.linkedin.com/company/12345678"])
+
+    def test_numeric_profile_only_from_homepage_and_alone(self):
+        home = "https://www.fjordtech.example/"
+        deep = "https://www.fjordtech.example/partnere"
+        html = '<a href="https://www.facebook.com/profile.php?id=100064255646668">fb</a>'
+        self.assertIn("facebook", web._socials([_page(home, html)], home, ["FJORDTECH AS"], "fjordtech"))
+        self.assertNotIn("facebook", web._socials([_page(deep, html)], home, ["FJORDTECH AS"], "fjordtech"))
+        both = html + '<a href="https://www.facebook.com/fjordtech">fb</a>'
+        got = web._socials([_page(home, both)], home, ["FJORDTECH AS"], "fjordtech")["facebook"]
+        self.assertEqual([i["url"] for i in got], ["https://www.facebook.com/fjordtech"])
+
+    def test_careers_navigation_is_not_a_job(self):
+        url = "https://www.knmaskin.example/karriere"
+        html = """<html><body><a href="#main">Hopp til innhold</a>
+        <a href="https://www.knmaskin.example/karriere">Karriere</a>
+        <a href="/karriere/ledige-stillinger">Se våre ledige stillinger</a>
+        <a href="/karriere/slik-er-det-a-jobbe-hos-oss">Slik er det å jobbe hos KN Maskin</a>
+        <a href="/karriere/skapte-sin-egen-stilling">Skapte sin egen stilling i kundesenteret</a>
+        <a href="/karriere/learning">Learning &amp; Development</a>
+        <a href="/stillinger/maskinforer-2026">Er du vår nye maskinfører?</a>
+        <a href="/stillinger/lager-123">Lagermedarbeider deltid Se stilling</a>
+        <a href="https://knmaskin.teamtailor.com/jobs/4242-anleggsleder">Anleggsleder</a>
+        </body></html>"""
+        jobs = web._job_links(_page(url, html)[1], _page(url, html)[0], "knmaskin.example")
+        self.assertEqual([j["title"] for j in jobs],
+                         ["Er du vår nye maskinfører?", "Lagermedarbeider deltid", "Anleggsleder"])
+
+    def test_group_and_brand_sites_are_recognised(self):
+        def doc(title, site_name=""):
+            meta = f'<meta property="og:site_name" content="{site_name}">' if site_name else ""
+            return _page("https://x.example/", f"<html><head><title>{title}</title>{meta}</head></html>")[1]
+        r = web.shared_site_reason
+        thon = doc("Thon Gruppen – Bolig, eiendom, hotell og kjøpesentre | Thon")
+        self.assertIn("only part of the legal name", r("THON STORO AS", "www.thon.no", "https://thon.no/", thon,
+                                                       "declared_by_registry+name_on_site", True))
+        self.assertIn("country section", r("XEROX AS", "", "https://www.xerox.com/no-no", doc("Xerox"),
+                                           "name_guess+name_and_registered_contact_on_site", True))
+        self.assertIn("section", r("AXFLOW SANDNES AS", "www.axflow.com/nb-no", "https://www.axflow.com/nb-no/",
+                                   doc("AxFlow Sandnes"), "declared_by_registry+name_on_site", True))
+        self.assertIsNone(r("MYHRE ELEKTRO AS", "www.myhre-elektro.no", "https://www.myhre-elektro.no/",
+                            doc("Hjem - Myhre Elektro - din elektriker i Skarnes", "Myhre Elektro"),
+                            "declared_by_registry+name_on_site", True))
+        self.assertIsNone(r("BRANDÅS TRANSPORT AS", "", "https://brandastransport.no/", doc("Brandås"),
+                            "name_guess+name_and_registered_contact_on_site", True))  # domain = full name
+        self.assertIsNone(r("THON STORO AS", "www.thon.no", "https://thon.no/", thon, "org_number_on_site", True))
+
+    def test_group_site_content_is_not_attributed(self):
+        group_home = """<html><head><title>Skogly – IT for bedrifter | Skogly</title>
+        <meta property="og:site_name" content="Skogly"><meta name="description" content="Skogly-konsernet leverer IT.">
+        <script type="application/ld+json">{"@type":"JobPosting","title":"Konsernsjef",
+        "hiringOrganization":{"@type":"Organization","name":"Skogly"}}</script></head>
+        <body><h1>Skogly</h1><a href="https://www.facebook.com/skogly">Facebook</a>
+        <a href="mailto:post@skogly.example">post@skogly.example</a></body></html>"""
+
+        class GroupNet(fx.FakeInternet):
+            def web(self, url, host, path):
+                if host == "skogly.example":
+                    return self.h("", 404) if path == "/robots.txt" else self.h(group_home)
+                return super().web(url, host, path)
+        net = GroupNet()
+        net.enheter[fx.K]["hjemmeside"] = "skogly.example"
+        tmp = Path(tempfile.mkdtemp())
+        _, envs, _ = do_run(tmp, net=net)
+        k = envs[fx.K]
+        site = claim(k, "official_website")
+        self.assertEqual(site["availability"], "available")
+        self.assertTrue(site["value"]["shared_with_group"])
+        for fld in ("social_profiles", "website_description", "website_contact", "public_brand_name"):
+            self.assertEqual(claim(k, fld)["availability"], "ambiguous", fld)
+        titles = [j["title"] for j in claim(k, "job_postings")["value"]]
+        self.assertNotIn("Konsernsjef", titles)  # the group's posting
+        self.assertIn("Systemutvikler", titles)  # NAV ad tied to K's own org number still counts
+        n, problems, _ = validate(tmp / "out" / "envelopes.jsonl")
+        self.assertEqual(problems, [])
 
 
 class RetryTest(unittest.TestCase):

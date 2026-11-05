@@ -1,6 +1,6 @@
 [project]
 name = "norway-company-agent"
-version = "0.2.5"
+version = "0.2.6"
 description = "Signalpost agent: evidence-linked Norwegian company profiles from official registers, NAV job ads and verified company websites"
 requires-python = ">=3.10"
 dependencies = []  # standard library only: nothing to install, nothing to pin

@@ -168,7 +168,8 @@ HOME_A = f"""<!doctype html><html lang="nb"><head><meta charset="utf-8"><title>F
 <a href="https://www.linkedin.com/company/fjordtech/">LinkedIn</a>
 <a href="https://www.facebook.com/fjordtech">Facebook</a>
 <a href="https://www.facebook.com/sharer/sharer.php?u=x">Del</a>
-<a href="https://twitter.com/intent/tweet?text=x">Tweet</a></footer></body></html>"""
+<a href="https://twitter.com/intent/tweet?text=x">Tweet</a>
+<a href="https://www.facebook.com/wix">Laget med Wix</a> <a href="https://www.facebook.com/webbyraaet">Nettside levert av Webbyrået</a></footer></body></html>"""
 
 CAREERS_A = """<html><head><title>Karriere – Fjordtech</title>
 <script type="application/ld+json">[{"@context":"https://schema.org","@type":"JobPosting","title":"Backend-utvikler",
@@ -176,7 +177,9 @@ CAREERS_A = """<html><head><title>Karriere – Fjordtech</title>
 "jobLocation":{"@type":"Place","address":{"addressLocality":"Bergen"}},"url":"https://www.fjordtech.example/karriere/backend"},
 {"@context":"https://schema.org","@type":"JobPosting","title":"Lagerarbeider (vikar)","datePosted":"%s",
 "hiringOrganization":{"@type":"Organization","name":"Other Staffing AS"}}]</script></head>
-<body><h1>Jobb hos oss</h1><ul>
+<body><a href="#innhold">Hopp til innhold</a><h1>Jobb hos oss</h1><ul>
+<li><a href="/karriere/ledige-stillinger">Se våre ledige stillinger</a></li>
+<li><a href="/karriere/hverdagen">Slik er det å jobbe i Fjordtech</a></li>
 <li><a href="https://fjordtech.teamtailor.com/jobs/123456-product-designer">Product Designer</a></li>
 <li><a href="/karriere">Karriere</a></li></ul></body></html>""" % (DAYS(10), DAYS(-30), DAYS(5))
 

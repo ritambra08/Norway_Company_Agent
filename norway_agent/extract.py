@@ -548,10 +548,21 @@ def _web(b: Builder, s: CompanyState, timeline: list[dict]) -> None:
                 ids.append(b.ev_json(f.resp, "ad_content.employer.homepage", "public_job_feed"))
                 break
     p = urlsplit(home.final_url)
-    b.put("official_website", {"url": f"{p.scheme}://{p.netloc}/", "final_url": home.final_url,
-                               "verification": v["method"], "candidate_from": v["origin"]},
-          ids, confidence=v["confidence"],
-          note="Published only after the identity gate passed (see evidence span).")
+    shared = w.get("shared_site")
+    val = {"url": f"{p.scheme}://{p.netloc}/", "final_url": home.final_url,
+           "verification": v["method"], "candidate_from": v["origin"]}
+    if shared:
+        val["shared_with_group"] = True
+    b.put("official_website", val, ids, confidence=v["confidence"],
+          note="Published only after the identity gate passed (see evidence span)." +
+               (f" Shared website: {shared}; content on it is not attributed to this entity." if shared else ""))
+    if shared:
+        reason = (f"Not attributed to this legal entity: {shared}. The website address is published because "
+                  f"it is declared for this company, but its brand, contact details, profiles, news and jobs "
+                  f"may belong to the group or brand.")
+        for fld in no_site_fields:
+            b.absent(fld, "ambiguous", reason)
+        return
     # brand + description
     if w.get("brand"):
         sp = _raw_span(home, w["brand"])
@@ -685,6 +696,8 @@ def _jobs(b: Builder, s: CompanyState, timeline: list[dict]) -> None:
     nav = s.status.get("nav_jobs") or SourceStatus("not_checked")
     site_state = ("checked" if w.get("careers") is not None else
                   ("no verified website" if not w.get("verified") else w.get("careers_status") or "no careers page"))
+    if w.get("shared_site"):
+        site_state = f"not read: {w['shared_site']}"
     checked = [{"source": "NAV job vacancy feed (ads tied to this org number or its establishments)",
                 "status": nav.state, "detail": nav.detail,
                 "result": f"{sum(1 for p in posts if p.get('source') == 'NAV job vacancy feed')} active ad(s)"},

@@ -30,7 +30,7 @@ from . import orgnr as orgnr_mod
 from .config import Config
 from .htmlparse import Doc, parse, types_of
 from .http import BudgetExceeded, Http, Response, Scope
-from .names import domain_candidates, page_names_company
+from .names import core_tokens, domain_candidates, fold, page_names_company
 from .snapshots import SnapshotStore
 from .state import CompanyState, SourceStatus
 
@@ -92,6 +92,33 @@ JOB_LINK = re.compile(
     r"finn\.no/(?:job/[^\s]*finnkode=\d+|\d{6,}))", re.I)
 GENERIC_LINK = re.compile(r"^\s*(les\s+mer.*|søk\s+her.*|søk\s+nå|se\s+stilling(en)?|mer\s+info.*|read\s+more.*|"
                           r"apply.*|show\s+more|vis\s+mer|klikk\s+her.*|her)\s*$", re.I)
+# Link texts on careers pages that talk ABOUT working there (or are navigation), not posting titles.
+CAREER_TALK = re.compile(r"ledige\s+stillinger|ledig\s+stilling(?!\s+som)|jobbe\s+(hos|i|med|for)\b|jobb\s+hos|"
+                         r"karriere|bli\s+(en\s+av\s+oss|med\s+(oss|på\s+laget))|work\s+(with|at|for)\s+us|"
+                         r"\bcareers?\b|join\s+(us|our)|see\s+(a\s+list|all)|hopp\s+til|skip\s+to|hovedinnhold|"
+                         r"main\s+content|til\s+innhold|^\s*(meny|menu|logg\s+inn|log\s+in|sign\s+in)\s*$", re.I)
+# A link on the company's own careers page counts as a posting only if its text reads like a job title.
+JOB_TITLE_HINT = re.compile(
+    r"\bsøk(er|es)\b|\b\w*(fører|sjåfør|leder|ingeniør|tekniker|konsulent|utvikler|medarbeider|rådgiver|selger|"
+    r"lærling|operatør|montør|arbeider|elektriker|snekker|tømrer|rørlegger|sykepleier|assistent|koordinator|"
+    r"ansvarlig|sjef|spesialist|analytiker|designer|manager|engineer|developer|specialist|coordinator|assistant|"
+    r"technician|officer|director|consultant|advisor|analyst|architect|intern|trainee|vikar|vikariat|lærer|pedagog|"
+    r"kokk|servitør|frisør|mekaniker|sveiser|maskinist|revisor|advokat|jurist|økonom|controller|terapeut|lege|"
+    r"sekretær|resepsjonist|vekter|renholder|programmerer|planlegger|fagarbeider|elev|representative|associate)"
+    r"(e|en|er|ne|s)?\b|\bheltid\b|\bdeltid\b|fast\s+stilling|sommerjobb|ledig\s+stilling\s+som|\b100\s*%|"
+    r"\((m/w/d|m/f/d|f/m/d)\)", re.I)
+TRAILING_CTA = re.compile(r"\s*[-–|·:]?\s*(se\s+stilling(en)?|les\s+mer|søk\s+nå|søk\s+her|apply(\s+now)?|"
+                          r"read\s+more|mer\s+info)\s*$", re.I)
+# Platform, website-builder and legal-page handles that are never a company's own profile.
+SOCIAL_NOT_A_COMPANY = {
+    "wix", "wixcom", "wixstudio", "squarespace", "wordpress", "wordpresscom", "wordpressdotcom", "shopify",
+    "weebly", "godaddy", "jimdo", "webflow", "elementor", "hubspot", "mailchimp", "zyro", "hostinger", "one",
+    "onecom", "domeneshop", "facebook", "instagram", "meta", "twitter", "x", "linkedin", "youtube", "google",
+    "tiktok", "apple", "microsoft", "policyphp", "policy", "policies", "privacy", "legal", "help", "terms", "tos",
+    "about", "business", "ads", "watch", "pages", "home", "homephp", "login", "signup", "settings", "profilephp",
+}
+# A country section of a multinational site (/no-no, /nb-no, /en-gb): its jobs, news and profiles are the group's.
+LOCALE_PATH = re.compile(r"^/[a-z]{2}[-_][a-z]{2}(/|$)", re.I)
 # Norwegian sites must show the org number (ehandelsloven § 8); it is usually on one of these pages.
 PROBE_PATHS = ("/kontakt", "/om-oss", "/personvern")
 SITE_JOB_PATH = re.compile(r"/(stilling|stillinger|ledige-stillinger|jobb|jobber|jobs|job|karriere|career|careers|"
@@ -575,37 +602,136 @@ def _verify(s: CompanyState, crawler: SiteCrawler, url: str, origin: str) -> dic
                                           "accountant or manager)",
                "name_guess": "guessed domain does not prove this company"}.get(origin, "candidate not proven")
         res.update(verdict="rejected", detail=why)
+    if res["verdict"] == "verified":
+        res["shared"] = shared_site_reason(legal, (s.body().get("hjemmeside") or "") if origin == "registry" else "",
+                                           r.final_url, doc, res["method"], name_prominent)
     return res
 
 
-def _socials(pages: list[tuple[Response, Doc]], home: str) -> dict[str, list[dict]]:
+def _site_brands(doc: Doc) -> list[str]:
+    """How the site names itself: Organization JSON-LD name, og:site_name, the last title segment."""
+    out = [obj["name"] for obj in doc.jsonld if types_of(obj) & ORG_TYPES and isinstance(obj.get("name"), str)]
+    out.append(doc.metas.get("og:site_name") or "")
+    parts = re.split(r"\s[|–\-·:—]\s", doc.title or "")
+    out.append(parts[-1] if parts else "")
+    return [b.strip() for b in out if b and b.strip()]
+
+
+def shared_site_reason(legal: str, registered_site: str, final_url: str, doc: Doc, method: str,
+                       name_full: bool) -> str | None:
+    """Why a verified website is a group or brand site rather than this legal entity's own (or None).
+    The website itself is still published (the register or a NAV ad declares it), but the jobs, profiles,
+    news, contact details and description on it are not attributed to this entity."""
+    if method == "org_number_on_site":
+        return None  # the site names this exact entity
+    path = urlsplit(final_url).path
+    if LOCALE_PATH.match(path):
+        return f"the website is a country section ({path.split('/')[1]}) of a multinational site"
+    if registered_site:
+        rp = urlsplit(registered_site if "://" in registered_site else "https://" + registered_site).path.strip("/")
+        if rp:
+            return f"the register points to a section ({registered_site.strip()}) of a larger website"
+    if _domain_from_name(legal, final_url):
+        return None  # the domain is the full legal name spelled out
+    legal_core = set(core_tokens(legal))
+    for brand in _site_brands(doc):
+        bc = set(core_tokens(brand))
+        if bc and bc < legal_core:
+            return (f"the site presents itself as \u201c{brand}\u201d, only part of the legal name {legal}, "
+                    f"so it is likely a group or brand website")
+    if method.startswith("declared_by_") and method.endswith("+name_on_site") and not name_full:
+        return f"the site shows only a brand shared with {legal}, not the full company name"
+    return None
+
+
+_KEY_TABLES = ({"Æ": "AE", "Ø": "O", "Å": "A"}, {"Æ": "AE", "Ø": "OE", "Å": "AA"})
+
+
+def _keys(text: str) -> set[str]:
+    """Lower-case ASCII squeezes of a name or handle, in both Norwegian transliterations."""
+    f = fold(text)
+    return {re.sub(r"[^a-z0-9]", "", "".join(t.get(c, c) for c in f).lower()) for t in _KEY_TABLES}
+
+
+def _social_handle(platform: str, path: str) -> tuple[str, bool]:
+    """(handle, is_numeric_id) for a profile path that already matched SOCIAL."""
+    parts = [x for x in path.split("/") if x]
+    if not parts:
+        return "", False
+    if platform == "facebook":
+        if parts[0].lower() == "profile.php":
+            return "", True
+        if parts[0].lower() == "pages":
+            return (parts[1] if len(parts) > 1 else ""), False
+        return parts[0], False
+    if platform == "linkedin":
+        slug = parts[1] if len(parts) > 1 else ""
+        return slug, slug.isdigit()
+    if platform == "youtube":
+        if parts[0] == "channel":
+            return "", True
+        return (parts[1] if parts[0] in ("c", "user") and len(parts) > 1 else parts[0].lstrip("@")), False
+    return parts[0].lstrip("@"), False
+
+
+def _profile_names_company(handle: str, needles: set[str]) -> bool:
+    return any(n in k for k in _keys(handle) for n in needles)
+
+
+def _socials(pages: list[tuple[Response, Doc]], home: str, names: list[str] | None = None,
+             label: str = "") -> dict[str, list[dict]]:
+    """Company profiles linked from its verified website. A link counts only if its handle carries the
+    company's name, brand or domain label; numeric-id profiles only when declared in the site's own
+    structured data or linked from its homepage, and only as the single link for that platform.
+    Website-builder defaults (wix, squarespace...), legal pages and agency/designer credits are dropped."""
+    needles: set[str] = set()
+    for n in names or []:
+        core = core_tokens(n)
+        for k in _keys(" ".join(core)):
+            if len(k) >= 4:
+                needles.add(k)
+        for t in core:
+            needles |= {k for k in _keys(t) if len(k) >= 5}
+    needles |= {k for k in _keys(label.replace("-", " ")) if len(k) >= 3}
     found: dict[str, dict[str, dict]] = {}
     for r, d in pages:
         if d is None:
             continue
-        hrefs = [(a.href, r) for a in d.anchors]
+        hrefs = [(a.href, r, False) for a in d.anchors]
         for obj in d.jsonld:
             same = obj.get("sameAs")
             for u in (same if isinstance(same, list) else [same] if same else []):
                 if isinstance(u, str):
-                    hrefs.append((u, r))
-        for href, resp in hrefs:
+                    hrefs.append((u, r, True))
+        for href, resp, declared in hrefs:
             u = urljoin(resp.final_url, href.strip())
             p = urlsplit(u)
             host = (p.hostname or "").lower()
             for platform, (hp, pp) in SOCIAL.items():
                 if re.search(hp, host) and re.match(pp, p.path + (("?" + p.query) if p.query and "id=" in p.query else "")):
+                    handle, is_id = _social_handle(platform, p.path)
+                    if is_id:
+                        if not (declared or resp.final_url == home):
+                            continue
+                    elif not handle or _keys(handle) & SOCIAL_NOT_A_COMPANY or \
+                            (needles and not _profile_names_company(handle, needles)):
+                        continue
                     if platform == "linkedin" or host.startswith("m.") or re.match(r"^[a-z]{2}\.", host):
                         host = "www." + re.sub(r"^(www|m|[a-z]{2})\.", "", host)
-                    clean = urlunsplit(("https", host,
-                                        p.path.rstrip("/"), p.query if "id=" in p.query else "", ""))
-                    found.setdefault(platform, {}).setdefault(clean.lower(), {"url": clean, "page": resp})
+                    path = p.path.rstrip("/")
+                    if platform == "linkedin":
+                        path = "/" + "/".join([x for x in path.split("/") if x][:2])
+                    clean = urlunsplit(("https", host, path, p.query if "id=" in p.query else "", ""))
+                    key = f"id:{p.query or p.path}".lower() if is_id else min(_keys(handle))
+                    found.setdefault(platform, {}).setdefault(key, {"url": clean, "page": resp, "is_id": is_id})
     out: dict[str, list[dict]] = {}
     for platform, items in found.items():
         vals = list(items.values())
         if len(vals) > 3:
             continue  # many handles for one platform: likely a directory or agency footer
-        out[platform] = vals
+        if any(v["is_id"] for v in vals) and len(vals) > 1:
+            vals = [v for v in vals if not v["is_id"]]  # an unnamed id next to named profiles: unprovable
+        out[platform] = [{"url": v["url"], "page": v["page"]} for v in vals]
     return out
 
 
@@ -660,11 +786,18 @@ def _jobpostings(d: Doc, r: Response, names_ok) -> list[dict]:
 
 
 def _job_links(d: Doc, r: Response, own_host: str) -> list[dict]:
+    """Postings linked from a careers page. ATS links are postings by their URL shape; links on the
+    company's own site must also read like a job title. Navigation ("Hopp til innhold"), links back to the
+    page itself and texts about working there ("Se våre ledige stillinger") are never postings."""
     out, seen = [], set()
+    here = r.final_url.split("#")[0].rstrip("/")
     for a in d.anchors:
-        u = urljoin(r.final_url, a.href).split("#")[0]
+        href = (a.href or "").strip()
+        if not href or href.startswith("#") or href.lower().startswith(("javascript:", "mailto:", "tel:")):
+            continue
+        u = urljoin(r.final_url, href).split("#")[0]
         text = re.sub(r"\s+", " ", a.text or a.title).strip()
-        if len(text) < 4 or len(text) > 160 or u in seen:
+        if u.rstrip("/") == here or len(text) < 4 or len(text) > 160 or u in seen:
             continue
         if GENERIC_LINK.match(text):
             blk = a.node.block()
@@ -672,12 +805,15 @@ def _job_links(d: Doc, r: Response, own_host: str) -> list[dict]:
             text = head or ""
             if len(text) < 4:
                 continue
+        text = TRAILING_CTA.sub("", text).strip()
+        if len(text) < 4 or CAREER_TALK.search(text):
+            continue
         host = registrable(urlsplit(u).hostname or "")
         if JOB_LINK.search(u):
             seen.add(u)
             out.append({"title": text, "url": u, "method": "ATS job link on careers page"})
-        elif host == own_host and SITE_JOB_PATH.search(urlsplit(u).path) and u.rstrip("/") != r.final_url.rstrip("/") \
-                and not CAREER_WORDS.fullmatch(text) and len(text.split()) >= 2:
+        elif host == own_host and SITE_JOB_PATH.search(urlsplit(u).path) and not CAREER_WORDS.fullmatch(text) \
+                and len(text.split()) >= 2 and JOB_TITLE_HINT.search(text):
             seen.add(u)
             out.append({"title": text, "url": u, "method": "job detail link on own careers page"})
     return out[:40]
@@ -820,6 +956,11 @@ def crawl_company(http: Http, cfg: Config, snaps: SnapshotStore, robots_cache: d
     home: Response = verified["home"]
     home_doc = pages[0][1]
     own = registrable(urlsplit(home.final_url).hostname or "")
+    if verified.get("shared"):
+        # A group or brand site: the address is the company's (declared), the content is not its own.
+        w["shared_site"] = verified["shared"]
+        w["careers_status"] = f"not read: {verified['shared']}"
+        return
     brand_names = {s.name()}
     org_obj, org_resp = _org_jsonld(pages)
     w["org_jsonld"] = (org_obj, org_resp) if org_obj else None
@@ -905,7 +1046,7 @@ def crawl_company(http: Http, cfg: Config, snaps: SnapshotStore, robots_cache: d
     # ---- profiles, contact, description ---------------------------------------------------
     all_pages = [(r0, d0) for r0, d0 in crawler.pages if d0 is not None
                  and registrable(urlsplit(r0.final_url).hostname or "") == own]
-    w["socials"] = _socials(all_pages, home.final_url)
+    w["socials"] = _socials(all_pages, home.final_url, sorted(brand_names), own.split(".")[0])
     emails, phones = {}, {}
     for r0, d0 in all_pages:
         for a in d0.anchors:
@@ -961,4 +1102,6 @@ def crawl_websites(http: Http, cfg: Config, snaps: SnapshotStore, states: list[C
         st = s.status.get("website", SourceStatus("not_checked")).state
         key = {"checked": "verified"}.get(st, st)
         stats[key] = stats.get(key, 0) + 1
+        if (s.web or {}).get("shared_site"):
+            stats["verified_shared_group_site"] = stats.get("verified_shared_group_site", 0) + 1
     return stats
