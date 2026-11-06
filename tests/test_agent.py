@@ -511,6 +511,54 @@ class DerivedFactsTest(unittest.TestCase):
         self.assertEqual(problems, [])
 
 
+class SiteDataTest(unittest.TestCase):
+    """profiles.jsonl (read by the JBOX site) gets plain-English display text, with every key, list
+    length and number unchanged, so a site reading the old shape keeps working."""
+
+    def test_site_card_changes_display_text_only(self):
+        from norway_agent.viewer import card, site_card
+        tmp = Path(tempfile.mkdtemp())
+        _, envs, _ = do_run(tmp)
+
+        def nums(x, acc):
+            if isinstance(x, bool):
+                return acc
+            if isinstance(x, (int, float)):
+                acc.append(x)
+            elif isinstance(x, dict):
+                [nums(v, acc) for v in x.values()]
+            elif isinstance(x, list):
+                [nums(v, acc) for v in x]
+            return acc
+        for env in envs.values():
+            raw, pub = card(env), site_card(card(env))
+            self.assertEqual(set(raw), set(pub))
+            self.assertEqual(set(raw["facts"]), set(pub["facts"]))
+            for k in raw:
+                if k not in ("facts", "summary"):
+                    self.assertEqual(raw[k], pub[k], k)
+            for f, x in raw["facts"].items():
+                y = pub["facts"][f]
+                for k in ("label", "state", "ev", "note", "stale", "reason"):
+                    self.assertEqual(x.get(k), y.get(k), (f, k))
+                self.assertEqual(nums(x.get("value"), []), nums(y.get("value"), []), f)
+                if isinstance(x.get("value"), list):
+                    self.assertEqual(len(x["value"]), len(y["value"]), f)
+        a = site_card(card(envs[fx.A]))["facts"]
+        roles = [i["role"] for i in a["leadership"]["value"]]
+        self.assertIn("Chief executive", roles)
+        self.assertTrue(all("group" not in i for i in a["leadership"]["value"]))
+        self.assertNotRegex(a["founding_date"]["text"], r"\d{4}-\d{2}-\d{2}")
+        self.assertEqual(a["registry_status"]["text"], "Active")
+
+    def test_published_file_is_the_display_version(self):
+        tmp = Path(tempfile.mkdtemp())
+        do_run(tmp)
+        rows = [json.loads(l) for l in (tmp / "out" / "profiles.jsonl").read_text(encoding="utf-8").splitlines()]
+        a = next(r for r in rows if r["org"] == fx.A)
+        self.assertEqual(a["facts"]["registry_status"]["text"], "Active")
+
+
 class RetryTest(unittest.TestCase):
     """A guessed domain that does not exist must fail at once on the web lane (no wasted retry),
     while register/NAV calls keep retrying transient network errors."""

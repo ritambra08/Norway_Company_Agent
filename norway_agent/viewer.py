@@ -147,11 +147,112 @@ def card(env: dict) -> dict:
     }
 
 
+# --- Display text for the published site data (profiles.jsonl) ----------------------------------
+# Plain English instead of register codes. Only display strings change: every key, list and number keeps
+# its shape and value, and the envelopes (the scored output) are untouched.
+ROLE_EN = {
+    "Daglig leder": "Chief executive", "Daglig leder/ adm.direktør": "Chief executive",
+    "Daglig leder/adm.direktør": "Chief executive", "Daglig leder / adm. direktør": "Chief executive",
+    "Styrets leder": "Chair of the board", "Nestleder": "Deputy chair",
+    "Styremedlem": "Board member", "Varamedlem": "Deputy board member", "Observatør": "Observer",
+    "Revisor": "Auditor", "Regnskapsfører": "Accountant", "Forretningsfører": "Business manager",
+    "Kontaktperson": "Contact person", "Innehaver": "Owner", "Komplementar": "General partner",
+    "Deltaker med fullt ansvar": "Partner (full liability)", "Deltaker med delt ansvar": "Partner (shared liability)",
+    "Bestyrende reder": "Managing shipowner", "Norsk representant for utenlandsk enhet": "Norwegian representative",
+}
+ACCOUNTS_TYPE_EN = {"SELSKAP": "Company accounts", "KONSERN": "Group accounts"}
+STATUS_EN = {"active": "Active", "bankrupt": "Bankrupt", "under_liquidation": "In liquidation",
+             "under_forced_dissolution": "Under forced dissolution", "closed": "Closed", "deleted": "Deleted"}
+_MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+_ISO_DATE = re.compile(r"(?<![\w/.-])(\d{4})-(\d{2})-(\d{2})(?![\w/-])")
+
+
+def _nice_dates(text: str) -> str:
+    """2021-05-09 -> 9 May 2021, except inside URLs or longer tokens."""
+    def sub(m):
+        y, mo, d = int(m.group(1)), int(m.group(2)), int(m.group(3))
+        return f"{d} {_MONTHS[mo - 1]} {y}" if 1 <= mo <= 12 and 1 <= d <= 31 else m.group(0)
+    if not isinstance(text, str):
+        return text
+    return re.sub(r"\S+", lambda w: w.group(0) if "://" in w.group(0) else _ISO_DATE.sub(sub, w.group(0)), text)
+
+
+def _once(phrases: list[str]) -> list[str]:
+    """Each distinct phrase once, first letter capitalised, order kept."""
+    out, seen = [], set()
+    for p in phrases:
+        p = (p or "").strip()
+        if p and p.lower() not in seen:
+            seen.add(p.lower())
+            out.append(p[0].upper() + p[1:])
+    return out
+
+
+def _role_items(v):
+    items = v if isinstance(v, list) else [v] if isinstance(v, dict) else []
+    for it in items:
+        if isinstance(it, dict) and it.get("role"):
+            it["role"] = ROLE_EN.get(it["role"], it["role"])
+            it.pop("group", None)  # the register's role group repeated the role ("Styre" + "Styremedlem")
+    return v
+
+
+def site_card(c: dict) -> dict:
+    """A copy of a profile card with plain-English display text, for the published profiles.jsonl."""
+    c = json.loads(json.dumps(c))
+    facts = c.get("facts") or {}
+    for f, x in facts.items():
+        if x.get("text"):
+            x["text"] = _nice_dates(x["text"])
+        v = x.get("value")
+        if v is None:
+            continue
+        if f in ("leadership", "board_members", "chief_executive", "board_chair", "auditor", "accountant"):
+            _role_items(v)
+        elif f == "annual_accounts_latest" and isinstance(v, dict):
+            v["accounts_type"] = ACCOUNTS_TYPE_EN.get(v.get("accounts_type"), v.get("accounts_type"))
+            for k in ("small_company_rules", "audit_opted_out"):
+                if isinstance(v.get(k), bool):
+                    v[k] = "Yes" if v[k] else "No"
+        elif f == "annual_accounts_history" and isinstance(v, list):
+            for it in v:
+                if isinstance(it, dict) and it.get("accounts_type"):
+                    it["accounts_type"] = ACCOUNTS_TYPE_EN.get(it["accounts_type"], it["accounts_type"])
+        elif f == "registry_change_events" and isinstance(v, list):
+            for it in v:
+                if isinstance(it, dict):
+                    if it.get("type") == "changed":
+                        it["type"] = ""  # every entry is a change; the label only repeated that
+                    elif isinstance(it.get("type"), str):
+                        it["type"] = it["type"][:1].upper() + it["type"][1:]
+                    if isinstance(it.get("changes"), list):
+                        it["changes"] = _once(it["changes"])
+        elif f == "role_change_events" and isinstance(v, list):
+            for it in v:
+                if isinstance(it, dict) and isinstance(it.get("type"), str):
+                    it["type"] = it["type"][:1].upper() + it["type"][1:]
+        elif f == "public_activity" and isinstance(v, list):
+            for it in v:
+                if isinstance(it, dict) and isinstance(it.get("title"), str) and "; " in it["title"]:
+                    it["title"] = "; ".join(_once(it["title"].split("; ")))
+        elif f == "institutional_sector" and isinstance(v, dict) and v.get("description"):
+            x["text"] = f"{v['description']} ({v['code']})" if v.get("code") else v["description"]
+            x.pop("value")
+    rs = facts.get("registry_status")
+    if rs and rs.get("text") in STATUS_EN:
+        rs["text"] = STATUS_EN[rs["text"]]
+    if isinstance(c.get("summary"), str):
+        c["summary"] = _nice_dates(c["summary"])
+    return c
+
+
 def write_cards(envs: list[dict], path: Path) -> list[dict]:
+    """Write the published site data (plain-English display text) and return the raw cards for the
+    built-in viewer."""
     cards = [card(e) for e in envs]
     with Path(path).open("w", encoding="utf-8") as fh:
         for c in cards:
-            fh.write(jsonl.dumps(c) + "\n")
+            fh.write(jsonl.dumps(site_card(c)) + "\n")
     return cards
 
 
