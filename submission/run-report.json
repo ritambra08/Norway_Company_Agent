@@ -1,14 +1,14 @@
 {
-  "run_id": "smoke-20261105T182908Z",
+  "run_id": "smoke-20261106T053432Z",
   "agent": {
     "name": "norway-company-agent",
-    "version": "0.2.3",
+    "version": "0.2.7",
     "model": null,
     "note": "deterministic pipeline; no LLM and no paid API"
   },
-  "started_at": "2026-11-05T18:29:08Z",
-  "completed_at": "2026-11-05T18:35:43Z",
-  "runtime_seconds": 395.7,
+  "started_at": "2026-11-06T05:34:32Z",
+  "completed_at": "2026-11-06T05:39:52Z",
+  "runtime_seconds": 320.6,
   "input": {
     "path": "smoke/smoke-companies.jsonl",
     "unique_inputs": 100,
@@ -27,20 +27,20 @@
     "partial": 2
   },
   "requests": {
-    "total": 794,
+    "total": 769,
     "budget": 2000,
     "by_source": {
       "brreg": 304,
-      "nav": 52,
-      "web": 438
+      "nav": 53,
+      "web": 412
     },
-    "retried_errors": 104
+    "retried_errors": 83
   },
   "third_party_cost_usd": 0.0,
   "cost_note": "No paid API or model. Brønnøysund and NAV APIs are free; websites are fetched directly.",
   "per_company_latency_ms": {
-    "p50": 9004,
-    "p95": 87058
+    "p50": 6679,
+    "p95": 87512
   },
   "coverage_by_family": {
     "activity": {
@@ -76,8 +76,8 @@
       "share": 0.02
     },
     "website": {
-      "companies": 12,
-      "share": 0.12
+      "companies": 11,
+      "share": 0.11
     }
   },
   "coverage_by_field": {
@@ -126,8 +126,8 @@
     },
     "parent_unit": {},
     "public_brand_name": {
-      "not_available": 94,
-      "available": 4,
+      "not_available": 95,
+      "available": 3,
       "failed": 2
     },
     "website_description": {
@@ -228,8 +228,8 @@
       "available": 7
     },
     "official_website": {
-      "not_available": 88,
-      "available": 7,
+      "not_available": 89,
+      "available": 6,
       "ambiguous": 3,
       "failed": 2
     },
@@ -274,23 +274,23 @@
     "nav_jobs": {
       "source": "NAV job vacancy feed",
       "pages": 37,
-      "entries": 359527,
-      "active_ads": 9629,
+      "entries": 359146,
+      "active_ads": 9434,
       "complete": true,
       "window_days": 185,
       "token": "NAV public token (published at /api/publicToken)",
       "error": null,
-      "candidate_ads": 14,
-      "details_fetched": 14,
-      "rejected_other_orgnr": 14
+      "candidate_ads": 15,
+      "details_fetched": 15,
+      "rejected_other_orgnr": 15
     },
     "websites": {
       "companies": 100,
-      "verified": 7,
+      "verified": 6,
       "ambiguous": 3,
       "blocked": 0,
       "failed": 2,
-      "not_found": 88,
+      "not_found": 89,
       "not_checked": 0
     }
   },
@@ -306,5 +306,5 @@
     "envelopes": "smoke/envelopes.jsonl",
     "snapshots": "smoke/snapshots"
   },
-  "version": "0.2.3"
+  "version": "0.2.7"
 }

@@ -1,9 +1,9 @@
 {
   "envelopes": 100,
   "claims": 4991,
-  "available_claims": 3411,
-  "evidence_checked": 5943,
-  "spans_replayed": 5943,
+  "available_claims": 3409,
+  "evidence_checked": 5941,
+  "spans_replayed": 5941,
   "problems": 0
 }
 100 envelopes checked, 0 problem(s).

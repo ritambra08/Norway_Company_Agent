@@ -1,14 +1,14 @@
 {
-  "run_id": "smoke-20261105T182908Z-refresh",
+  "run_id": "smoke-20261106T053432Z-refresh",
   "agent": {
     "name": "norway-company-agent",
-    "version": "0.2.3",
+    "version": "0.2.7",
     "model": null,
     "note": "deterministic pipeline; no LLM and no paid API"
   },
-  "started_at": "2026-11-05T18:35:46Z",
-  "completed_at": "2026-11-05T18:41:47Z",
-  "runtime_seconds": 361.7,
+  "started_at": "2026-11-06T05:39:55Z",
+  "completed_at": "2026-11-06T05:45:23Z",
+  "runtime_seconds": 328.5,
   "input": {
     "path": "smoke/smoke-companies.jsonl",
     "unique_inputs": 100,
@@ -23,24 +23,24 @@
     "available": 100
   },
   "terminal_status_counts": {
-    "completed": 97,
-    "partial": 3
+    "completed": 98,
+    "partial": 2
   },
   "requests": {
-    "total": 797,
+    "total": 769,
     "budget": 2000,
     "by_source": {
       "brreg": 304,
-      "nav": 52,
-      "web": 441
+      "nav": 54,
+      "web": 411
     },
-    "retried_errors": 109
+    "retried_errors": 79
   },
   "third_party_cost_usd": 0.0,
   "cost_note": "No paid API or model. Brønnøysund and NAV APIs are free; websites are fetched directly.",
   "per_company_latency_ms": {
-    "p50": 8457,
-    "p95": 88950
+    "p50": 6618,
+    "p95": 88045
   },
   "coverage_by_family": {
     "activity": {
@@ -126,14 +126,14 @@
     },
     "parent_unit": {},
     "public_brand_name": {
-      "not_available": 93,
+      "not_available": 94,
       "available": 4,
-      "failed": 3
+      "failed": 2
     },
     "website_description": {
-      "not_available": 93,
+      "not_available": 94,
       "available": 4,
-      "failed": 3
+      "failed": 2
     },
     "annual_accounts_latest": {
       "available": 100
@@ -211,17 +211,17 @@
       "available": 100
     },
     "website_locations": {
-      "not_available": 97,
-      "failed": 3
+      "not_available": 98,
+      "failed": 2
     },
     "registered_contact": {
       "available": 34,
       "not_available": 66
     },
     "website_contact": {
-      "not_available": 95,
+      "not_available": 96,
       "available": 2,
-      "failed": 3
+      "failed": 2
     },
     "registered_website": {
       "not_available": 93,
@@ -230,17 +230,17 @@
     "official_website": {
       "not_available": 88,
       "available": 7,
-      "ambiguous": 2,
-      "failed": 3
+      "ambiguous": 3,
+      "failed": 2
     },
     "social_profiles": {
-      "not_available": 95,
-      "failed": 3,
+      "not_available": 96,
+      "failed": 2,
       "available": 2
     },
     "careers_page": {
-      "not_available": 97,
-      "failed": 3
+      "not_available": 98,
+      "failed": 2
     },
     "job_postings": {
       "not_available": 100
@@ -256,40 +256,42 @@
       "not_available": 37
     },
     "website_news": {
-      "not_available": 95,
+      "not_available": 96,
       "available": 2,
-      "failed": 3
+      "failed": 2
     },
     "public_activity": {
       "available": 100
     }
   },
   "changes": {
-    "total": 0,
-    "by_type": {},
+    "total": 2,
+    "by_type": {
+      "availability_changed": 2
+    },
     "companies_with_material_changes": 0
   },
   "carried_forward_claims": 0,
   "sources": {
     "nav_jobs": {
       "source": "NAV job vacancy feed",
-      "pages": 37,
-      "entries": 359525,
-      "active_ads": 9629,
+      "pages": 38,
+      "entries": 359126,
+      "active_ads": 9435,
       "complete": true,
       "window_days": 185,
       "token": "NAV public token (published at /api/publicToken)",
       "error": null,
-      "candidate_ads": 14,
-      "details_fetched": 14,
-      "rejected_other_orgnr": 14
+      "candidate_ads": 15,
+      "details_fetched": 15,
+      "rejected_other_orgnr": 15
     },
     "websites": {
       "companies": 100,
       "verified": 7,
-      "ambiguous": 2,
+      "ambiguous": 3,
       "blocked": 0,
-      "failed": 3,
+      "failed": 2,
       "not_found": 88,
       "not_checked": 0
     }
@@ -306,5 +308,5 @@
     "envelopes": "smoke/envelopes.jsonl",
     "snapshots": "smoke/snapshots"
   },
-  "version": "0.2.3"
+  "version": "0.2.7"
 }
