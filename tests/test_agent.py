@@ -689,6 +689,17 @@ class SectionProbeTest(unittest.TestCase):
         n, problems, _ = validate(tmp / "out" / "envelopes.jsonl")
         self.assertEqual(problems, [])
 
+    def test_careers_link_to_a_service_page_is_not_a_careers_page(self):
+        home = """<html><head><title>Glimt</title></head><body><h1>Data og analyse</h1>
+            <a href="/tjenester/karriereradgivning">Karriere</a><a href="/kontakt">Kontakt</a></body></html>"""
+        pages = {"/": home, "/tjenester/karriereradgivning": """<html><head><title>Personlig rådgivning | Glimt</title>
+            </head><body><h1>Personlig rådgivning</h1><p>Vi hjelper deg videre.</p></body></html>"""}
+        tmp = Path(tempfile.mkdtemp())
+        _, envs, _ = do_run(tmp, net=self._net(pages))
+        m = envs[fx.M]
+        self.assertEqual(claim(m, "official_website")["availability"], "available")
+        self.assertNotEqual(claim(m, "careers_page")["availability"], "available")
+
     def test_soft_404_is_not_a_section(self):
         tmp = Path(tempfile.mkdtemp())
         _, envs, _ = do_run(tmp, net=self._net({}, soft404=True))

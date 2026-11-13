@@ -1236,15 +1236,24 @@ def crawl_company(http: Http, cfg: Config, snaps: SnapshotStore, robots_cache: d
                 cand_links.append(u)
     w["careers_status"] = "no careers link found on homepage/contact pages"
 
-    def read_careers(rc, dc):
+    def read_careers(rc, dc) -> bool:
+        """Read a linked careers page. It counts only if it calls itself a careers page in its title or main
+        headings, lists postings, or says there are none (a "Karriere" link can lead to a career-coaching
+        service, a contact page or a membership page)."""
         nonlocal careers, jobs
+        found = [dict(j, page=rc) for j in _jobpostings(dc, rc, names_ok)] + \
+                [dict(j, page=rc) for j in _job_links(dc, rc, own)]
+        m = NO_VACANCY.search(dc.text)
+        heads = " ".join([dc.title or ""] + [n.text()[:200] for t in ("h1", "h2") for n in dc.root.iter(t)][:6])
+        if not (CAREER_WORDS.search(heads) or found or m):
+            w["careers_status"] = "the linked page is not a careers page"
+            return False
         careers = rc
         w["careers_status"] = "checked"
-        jobs += [dict(j, page=rc) for j in _jobpostings(dc, rc, names_ok)]
-        jobs += [dict(j, page=rc) for j in _job_links(dc, rc, own)]
-        m = NO_VACANCY.search(dc.text)
+        jobs += found
         if m:
             w["no_vacancy"] = (rc, m.group(0))
+        return True
 
     for u in list(dict.fromkeys(cand_links))[:2]:
         rc, dc, oc = crawler.fetch(u)
@@ -1257,8 +1266,8 @@ def crawl_company(http: Http, cfg: Config, snaps: SnapshotStore, robots_cache: d
         if not urlsplit(rc.final_url).path.strip("/") or rc.sha256 == home.sha256:
             w["careers_status"] = "the careers link leads back to the homepage"
             continue
-        read_careers(rc, dc)
-        break
+        if read_careers(rc, dc):
+            break
     if careers is None and not cand_links:
         rc, dc = _probe(crawler, home, CAREER_PROBES, CAREER_WORDS)
         if rc is not None:
