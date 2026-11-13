@@ -592,6 +592,34 @@ class AddressProofTest(unittest.TestCase):
         ev = {e["id"]: e for e in b["evidence"]}
         self.assertTrue(any("Bryggen 1" in ev[i]["claim_span"] for i in site["evidence_ids"]))
 
+    def test_distinctive_word_domain_needs_the_org_number(self):
+        # nordlys.no for NORDLYS HOLDING AS: often the operating or sister company at the same address.
+        from unittest import mock as _m
+        page = """<html><head><title>Nordlys</title></head><body><h1>Nordlys Holding</h1>
+        <footer>Nordlys AS, Bryggen 1, 5003 Bergen</footer></body></html>"""
+
+        class CoreNet(fx.FakeInternet):
+            def web(self, url, host, path):
+                if host in ("nordlys.no", "www.nordlys.no"):
+                    return self.h("", 404) if path == "/robots.txt" else self.h(page)
+                if host in ("nordlysholding.no", "www.nordlysholding.no"):
+                    raise OSError("Name or service not known")
+                return super().web(url, host, path)
+        def run_with(html):
+            nonlocal page
+            page = html
+            net = CoreNet()
+            tmp = Path(tempfile.mkdtemp())
+            with _m.patch("tests.test_agent.fake_resolves", lambda h, timeout=3.0: h in ("nordlys.no", "www.nordlys.no")):
+                _, envs, _ = do_run(tmp, net=net)
+            self.assertTrue(any("nordlys.no" in c for c in net.calls))  # the guess was really tried
+            return envs[fx.B]
+        b = run_with(page)
+        self.assertNotEqual(claim(b, "official_website")["availability"], "available")
+        self.assertNotIn("nordlys.no", json.dumps(b).lower())
+        b = run_with(page.replace("</footer>", f" · Nordlys Holding AS org.nr. {fx.fmt(fx.B)}</footer>"))
+        self.assertEqual(claim(b, "official_website")["availability"], "available")  # the org number ties it
+
     def test_namesake_at_another_address_is_not_verified(self):
         b = self._run_with_guess_page("""<html><head><title>Nordlys Holding</title></head><body><h1>Nordlys Holding</h1>
         <footer>Nordlys Holding AS, Bryggen 12, 5003 Bergen</footer></body></html>""")
@@ -668,6 +696,36 @@ class SectionProbeTest(unittest.TestCase):
         self.assertEqual(claim(m, "official_website")["availability"], "available")
         self.assertNotEqual(claim(m, "careers_page")["availability"], "available")
         self.assertNotEqual(claim(m, "website_news")["availability"], "available")
+
+
+class AuditFindingsTest(unittest.TestCase):
+    """Cases found in the hand audit of the 1,000-company v0.2.8 run."""
+
+    def test_news_items_are_articles(self):
+        from norway_agent.web import _news_item_ok
+
+        class Home:
+            final_url = "https://www.example.no/"
+        ok = lambda u, t="Vi åpner ny butikk i Bergen": _news_item_ok({"url": u, "title": t}, Home)  # noqa: E731
+        self.assertTrue(ok("https://www.example.no/blog/2026/4/27/ny-butikk"))
+        self.assertFalse(ok("https://www.example.no/blog?author=5a788cef"))  # an author listing
+        self.assertFalse(ok("https://www.example.no/nyheter/tag/bakst"))
+        self.assertFalse(ok("https://www.example.no/"))  # the homepage itself
+        self.assertFalse(ok("https://www.example.no/2026/06/10/x", "The Rise of Online Gaming Sites"))  # spam post
+
+    def test_careers_wording(self):
+        from norway_agent.web import CAREER_SLUG, CAREER_WORDS
+        self.assertFalse(CAREER_WORDS.search("Bli medlem"))  # membership, not a job
+        self.assertFalse(CAREER_WORDS.search("Rekruttering"))  # a recruitment service the company sells
+        self.assertTrue(CAREER_WORDS.search("Bli med oss"))
+        self.assertTrue(CAREER_SLUG.fullmatch("jobbe-i-spera"))
+        self.assertFalse(CAREER_SLUG.fullmatch("store-tilbake-pa-jobb-etter-omgangssyken"))
+
+    def test_holding_company_does_not_take_its_subsidiarys_site(self):
+        from norway_agent.web import HOLDING_WORDS
+        from norway_agent.names import tokens
+        self.assertTrue(set(tokens("KRONBERG HOLDING AS")) & HOLDING_WORDS)
+        self.assertFalse(set(tokens("BOLIGLEVERANDØREN KARMØY AS")) & HOLDING_WORDS)
 
 
 class SiteDataTest(unittest.TestCase):

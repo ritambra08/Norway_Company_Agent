@@ -30,7 +30,7 @@ from . import orgnr as orgnr_mod
 from .config import Config
 from .htmlparse import Doc, parse, types_of
 from .http import BudgetExceeded, Http, Response, Scope
-from .names import LEGAL_SUFFIXES, core_tokens, domain_candidates, fold, page_names_company
+from .names import LEGAL_SUFFIXES, core_tokens, domain_candidates, fold, page_names_company, tokens
 from .snapshots import SnapshotStore
 from .state import CompanyState, SourceStatus
 
@@ -51,8 +51,12 @@ SOCIAL = {
     "tiktok": (r"(?:^|\.)tiktok\.com$", r"^/@[A-Za-z0-9._]+/?$"),
 }
 CAREER_WORDS = re.compile(r"karriere|ledige[\s_-]*stillinger|ledig[\s_-]*stilling|\bstillinger\b|jobb\s*hos|"
-                          r"jobbe\s*(hos|i|med)|bli\s*(en\s*av\s*oss|med)|\bcareers?\b|\bjobs\b|vacanc|"
-                          r"join[\s_-]*(us|the\s*team)|work[\s_-]*with[\s_-]*us|\bjobb\b|rekrutter", re.I)
+                          r"jobbe\s*(hos|i|med)\b|bli\s*(en\s*av\s*oss|med\s+(oss|på\s+laget))\b|\bcareers?\b|"
+                          r"\bjobs\b|vacanc|join[\s_-]*(us|the\s*team)\b|work[\s_-]*with[\s_-]*us|\bjobb\b", re.I)
+# First path segment of a careers section ("/karriere", "/jobbe-i-spera", "/careers").
+CAREER_SLUG = re.compile(r"(karriere|karrierer|jobb|jobber|jobbe-hos-oss|jobb-hos-oss|jobbe-i-[\w-]+|"
+                         r"ledige-stillinger|ledig-stilling|stillinger|careers?|jobs|vacancies|work-with-us|join-us|"
+                         r"bli-en-av-oss)", re.I)
 CONTACT_WORDS = re.compile(r"kontakt|contact|om[\s_-]*oss|about|personvern|privacy|impressum|firma|"
                            r"selskapet|company", re.I)
 NEWS_WORDS = re.compile(r"\bnyhet(er)?\b|\baktuelt\b|\baktuell\b|\bnews\b|\bpresse(meldinger|rom)?\b|\bpress\b|"
@@ -254,6 +258,10 @@ def scrub_addresses(text: str | None) -> str | None:
     out = ADDRESS.sub("[address withheld]", text)
     return re.sub(r"\s{2,}", " ", out).strip()
 
+
+# A holding or property company that shares its operating company's email and phone is not that company.
+HOLDING_WORDS = {"HOLDING", "INVEST", "INVESTERING", "INVESTMENT", "EIENDOM", "EIENDOMMER", "GRUPPEN", "GROUP",
+                 "KAPITAL", "CAPITAL"}
 
 ORIGIN_TEXT = {"registry": "the website declared in the register",
                "nav_employer_homepage": "the employer homepage on a NAV ad for this org number",
@@ -560,7 +568,9 @@ def _domain_from_name(legal: str, url: str) -> bool:
     label = registrable(urlsplit(url).hostname or "").split(".")[0].replace("-", "").lower()
     if len(label) < 4:
         return False
-    return any(c.split(".")[0].replace("-", "") == label for c in domain_candidates(legal))
+    # "&" / "og" / "and" are often left out of the domain (hansenandersen.no for HANSEN & ANDERSEN AS).
+    bare = " ".join(t for t in fold(legal).split() if t not in ("OG", "AND"))
+    return any(c.split(".")[0].replace("-", "") == label for c in domain_candidates(legal) + domain_candidates(bare))
 
 
 def _verify(s: CompanyState, crawler: SiteCrawler, url: str, origin: str) -> dict:
@@ -693,14 +703,19 @@ def _verify(s: CompanyState, crawler: SiteCrawler, url: str, origin: str) -> dic
             prf, sp = name_proof()
         res.update(verdict="verified", method=f"{origin}+domain_matches_legal_name+name_on_site", confidence=0.9,
                    proof=prf, span=sp)
-    elif origin == "registered_email_domain" and name_prominent and (phone_m or addr_ok) and not directory:
+    elif origin == "registered_email_domain" and name_prominent and (phone_m or addr_ok) and not directory \
+            and not (set(tokens(legal)) & HOLDING_WORDS):
         # The registered email's domain is not spelled like the name (an abbreviation such as arkjv.no), but the
         # site names the company in its title, headings or footer AND shows its registered phone or street
         # address. A manager's or accountant's site does not present a client that way.
         prf, sp = contact_span()
         res.update(verdict="verified", method=f"{origin}+name_and_registered_contact_on_site", confidence=0.9,
                    proof=prf, span=sp)
-    elif origin == "name_guess" and name_any and contact:
+    elif origin == "name_guess" and name_any and contact and \
+            (_domain_from_name(legal, url) or _domain_from_name(legal, r.final_url)):
+        # Only for a domain spelled like the FULL legal name. A domain made of the distinctive words alone
+        # (kirkesund.no for KIRKESUND EIENDOM AS) is often the parent's or sister company's site at the same
+        # address, so it must show this org number (handled above).
         # A guessed domain needs the name AND the company's registered phone or email on the site
         # (namesakes are common), unless the org number itself is shown (handled above).
         if contact:
@@ -1062,6 +1077,23 @@ def _article_links(d: Doc, r: Response, own: str, limit: int = 3) -> list[str]:
     return out
 
 
+NOT_NEWS_URL = re.compile(r"[?&](author|tag|tags|category|categories|kategori|cat)=|/(author|forfatter|tag|tags|"
+                          r"category|categories|kategori|emne)(/|$)|/page/\d+", re.I)
+SPAM_TITLE = re.compile(r"\b(casino|gambling|betting|sportsbook|slots?|poker|online\s+gaming|bonus\s+codes?|"
+                        r"payday\s+loans?|viagra|cialis|escort)\b", re.I)
+
+
+def _news_item_ok(n: dict, home: Response) -> bool:
+    """A dated news item: an article, not an author/tag/category listing, not the homepage, not spam."""
+    u = n.get("url") or ""
+    p = urlsplit(u)
+    if NOT_NEWS_URL.search(p.path + ("?" + p.query if p.query else "")):
+        return False
+    if not p.path.strip("/") or u.rstrip("/") == home.final_url.rstrip("/"):
+        return False
+    return not SPAM_TITLE.search(n.get("title") or "")
+
+
 def _news_from_feed(r: Response, window: int) -> list[dict]:
     out = []
     try:
@@ -1196,7 +1228,11 @@ def crawl_company(http: Http, cfg: Config, snaps: SnapshotStore, robots_cache: d
             host = urlsplit(u).hostname or ""
             if not u.startswith("http"):
                 continue
-            if CAREER_WORDS.search(a.text + " " + urlsplit(u).path) and careers_link_ok(u, own):
+            txt = re.sub(r"\s+", " ", a.text or "").strip()
+            segs = [x for x in urlsplit(u).path.split("/") if x]
+            text_ok = bool(CAREER_WORDS.search(txt)) and len(txt.split()) <= 5
+            path_ok = bool(segs) and bool(CAREER_SLUG.fullmatch(segs[0]))
+            if (text_ok or path_ok) and careers_link_ok(u, own) and u.rstrip("/") != home.final_url.rstrip("/"):
                 cand_links.append(u)
     w["careers_status"] = "no careers link found on homepage/contact pages"
 
@@ -1217,6 +1253,9 @@ def crawl_company(http: Http, cfg: Config, snaps: SnapshotStore, robots_cache: d
             continue
         if oc != "ok" or dc is None:
             w["careers_status"] = f"careers page fetch {oc}"
+            continue
+        if not urlsplit(rc.final_url).path.strip("/") or rc.sha256 == home.sha256:
+            w["careers_status"] = "the careers link leads back to the homepage"
             continue
         read_careers(rc, dc)
         break
@@ -1308,7 +1347,7 @@ def crawl_company(http: Http, cfg: Config, snaps: SnapshotStore, robots_cache: d
                             news.append(dict(it, page=ra))
     dedup, seen = [], set()
     for n in sorted(news, key=lambda x: x["date"], reverse=True):
-        if n["url"] not in seen:
+        if n["url"] not in seen and _news_item_ok(n, home):
             seen.add(n["url"])
             dedup.append(n)
     w["news"] = dedup[:12]
