@@ -11,6 +11,7 @@ UNIVERSE="${UNIVERSE:-signalpost-universe.jsonl.gz}"
 if [ ! -f "$UNIVERSE" ]; then
   curl -fL 'https://builderr.ai/signalpost-company-universe-2025.jsonl.gz' -o "$UNIVERSE"
 fi
+rm -rf smoke  # a clean first run: never diff against envelopes written by an older version
 python3 scripts/select_entry_batch.py --universe "$UNIVERSE" --count "$N" --output "smoke/smoke-companies.jsonl"
 RUN_ID="smoke-$(date -u +%Y%m%dT%H%M%SZ)"
 python3 -m norway_agent run --organisations smoke/smoke-companies.jsonl --output smoke/envelopes.jsonl \

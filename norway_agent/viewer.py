@@ -142,6 +142,9 @@ def card(env: dict) -> dict:
         "jobs": len(jobs) if isinstance(jobs, list) else None,
         "completeness": round(present / len(KEY_FIELDS), 2),
         "changes": env.get("changes") or [], "summary": (env.get("summary") or {}).get("text", ""),
+        "summary_plain": (env.get("summary") or {}).get("plain_text"),
+        "summary_sources": [{k: x.get(k) for k in ("n", "name", "url")}
+                            for x in (env.get("summary") or {}).get("sources") or []],
         "sections": env.get("availability") or {}, "facts": facts,
         "run": (env.get("run") or {}).get("run_id"), "errors": env.get("errors") or [], "E": table,
     }
@@ -200,6 +203,8 @@ def _role_items(v):
 def site_card(c: dict) -> dict:
     """A copy of a profile card with plain-English display text, for the published profiles.jsonl."""
     c = json.loads(json.dumps(c))
+    if c.get("summary_plain"):
+        c["summary"] = c["summary_plain"]  # the site shows the summary without source numbers
     facts = c.get("facts") or {}
     for f, x in facts.items():
         if x.get("text"):

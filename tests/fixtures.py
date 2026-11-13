@@ -140,8 +140,12 @@ def period(y, rev, res, eq, typ="SELSKAP", org=A):
             "egenkapitalGjeld": {"egenkapital": {"sumEgenkapital": eq}, "gjeldOversikt": {"sumGjeld": 400000.0}},
             "eiendeler": {"sumEiendeler": eq + 400000.0},
             "resultatregnskapResultat": {"ordinaertResultatFoerSkattekostnad": res * 1.2, "aarsresultat": res,
+                                         "ordinaertResultatSkattekostnad": res * 0.2,
+                                         "finansresultat": {"nettoFinans": 0.0, "finansinntekt": {},
+                                                            "finanskostnad": {}},
                                          "driftsresultat": {"driftsresultat": res * 1.3,
-                                                            "driftsinntekter": {"sumDriftsinntekter": rev},
+                                                            "driftsinntekter": {"sumDriftsinntekter": rev,
+                                                                                "salgsinntekter": rev - 1000.0},
                                                             "driftskostnad": {"loennskostnad": 9000000.0}}}}
 
 
@@ -169,7 +173,8 @@ HOME_A = f"""<!doctype html><html lang="nb"><head><meta charset="utf-8"><title>F
 <a href="https://www.facebook.com/fjordtech">Facebook</a>
 <a href="https://www.facebook.com/sharer/sharer.php?u=x">Del</a>
 <a href="https://twitter.com/intent/tweet?text=x">Tweet</a>
-<a href="https://www.facebook.com/wix">Laget med Wix</a> <a href="https://www.facebook.com/webbyraaet">Nettside levert av Webbyrået</a></footer></body></html>"""
+<a href="https://www.facebook.com/wix">Laget med Wix</a> <a href="https://www.facebook.com/webbyraaet">Nettside levert av Webbyrået</a>
+<a href="mailto:hei@webbyraaet.example">hei@webbyraaet.example</a></footer></body></html>"""
 
 CAREERS_A = """<html><head><title>Karriere – Fjordtech</title>
 <script type="application/ld+json">[{"@context":"https://schema.org","@type":"JobPosting","title":"Backend-utvikler",

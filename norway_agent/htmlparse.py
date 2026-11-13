@@ -48,6 +48,12 @@ class Node:
                     yield c
                 yield from c.iter(tag)
 
+    def ancestors(self):
+        n = self.parent
+        while n is not None:
+            yield n
+            n = n.parent
+
     def block(self) -> "Node":
         n = self.parent
         while n is not None and n.tag not in BLOCK:

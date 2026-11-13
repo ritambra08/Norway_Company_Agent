@@ -6,6 +6,12 @@ Give it a batch of Norwegian organisation numbers. It returns **one terminal env
 - **Standard library only.** Python ≥ 3.10, nothing to install.
 - **Exact identity first.** Nothing is published unless it is tied to the exact organisation number.
 
+## See it: find, compare and verify (desktop and mobile)
+
+- **Live site:** <https://jbox-view-signalpost.vercel.app/> shows the 100-company smoke test. Search by name, org number, city or industry; compare companies side by side; select any source mark to see the exact source extract (quoted span, source URL, retrieval date).
+- **Built-in viewer for every run:** each run writes `out/index.html`. It is one self-contained file that works offline on desktop and mobile. It has search, filters and sorting, side-by-side compare of up to three companies, and a source extract (URL, retrieval time, content hash, quoted span) behind every fact. The smoke-test copy is at [`submission/index.html`](submission/index.html), also served at <https://ritambra08.github.io/Norway_Company_Agent/submission/>.
+- **Every summary cites its sources:** each sentence of `summary.text` ends with source numbers (`[1]`, `[2, 3]`) that point to `summary.sources`. `summary.statements` lists, per sentence, the claims and evidence ids it rests on. The summary says what the company does, what changed (dated register changes in the last 12 months, plus differences from the previous run) and what remains unknown, and why.
+
 ## Run it (one command)
 
 ```bash
@@ -41,7 +47,9 @@ python3 -m norway_agent run --organisations batch.jsonl --output out/envelopes.j
   "status": "available",                    // one of the six states
   "legal_identity": {"name": "...", "organisation_form": "ASA", "match": "exact organisation number in Enhetsregisteret"},
   "run": {"run_id": "...", "started_at": "...", "completed_at": "...", "terminal_status": "completed|partial|failed"},
-  "summary": {"text": "...", "what_changed": "...", "unknowns": [...], "based_on_fields": [...]},
+  "summary": {"text": "... founded 2014 [1]. ...", "plain_text": "...", "what_changed": "...", "unknowns": [...],
+              "statements": [{"section": "what_it_does", "text": "...", "fields": [...], "evidence_ids": [...], "sources": [1]}],
+              "sources": [{"n": 1, "name": "...", "url": "...", "retrieved_at": "..."}], "based_on_fields": [...]},
   "availability": {"company_brief": "available", "latest_financials": "...", "who_runs_it": "...",
                    "where_it_operates": "...", "working_here": "...", "recent_activity": "...", "online_presence": "..."},
   "claims": [{"field": "revenue", "family": "financials", "value": {"amount": 914051.0, "currency": "NOK",
@@ -72,12 +80,12 @@ python3 -m norway_agent run --organisations batch.jsonl --output out/envelopes.j
 | Family (section) | Fields | Source |
 |---|---|---|
 | Company brief | legal name, legal form, register status (active, bankrupt, liquidation…), registration and founding dates, NACE industries, sector, registered activity and purpose, employees (exact count, or 0–4 when the register withholds it), VAT and business-register flags with dates, share capital, group membership, former names, public brand name, website self-description | Enhetsregisteret; verified website |
-| Latest financials | latest accounts (period, currency, SELSKAP/KONSERN); revenue, operating result, profit before tax, net result, assets, equity, liabilities and personnel costs, copied verbatim; history for every period in the open API; revenue change (derived, with both figures cited) | Regnskapsregisteret |
+| Latest financials | latest accounts (period, currency, SELSKAP/KONSERN); revenue, sales revenue, operating costs, personnel costs, operating result, financial income, costs and net financial items, profit before tax, tax, net result, fixed and current assets, receivables, total assets, paid-in and retained equity, equity, short- and long-term liabilities, total liabilities, total equity and liabilities, each copied verbatim and only when the filing reports it; the same lines for every period in the open API; revenue change (derived, with both figures cited) | Regnskapsregisteret |
 | Who runs it | all current roles; CEO (owner for sole proprietorships); chair; board; auditor; accountant | Enhetsregisteret roles |
 | Where it operates | business and postal address; registered workplaces (establishments with their own org numbers, addresses and employees); addresses in the website's structured data; contact details | Enhetsregisteret; verified website |
 | Online presence | website declared in the register; **verified** official website; LinkedIn, Facebook, Instagram, X, YouTube and TikTok profiles linked from the verified site | Verified website |
-| Working here | open job postings and hiring signal; careers page | NAV job feed (tied by org number); careers page (JSON-LD `JobPosting`, ATS links) |
-| Recent activity | merged, newest-first timeline: register change events (e.g. "annual accounts for 2025 registered", address/name changes), role updates, name changes, job postings, website news (RSS, `Article` structured data, dated lists) | Enhetsregisteret change feeds; NAV; verified website |
+| Working here | open job postings and hiring signal; careers page | NAV job feed (tied by org number); careers page (JSON-LD `JobPosting`, ATS links; a link on the company's own careers page counts only if its page reads like a posting, and postings whose structured data says they closed are dropped) |
+| Recent activity | merged, newest-first timeline: register change events (e.g. "annual accounts for 2025 registered", address/name changes), role updates, name changes, job postings, website news (RSS, `Article` structured data, dated lists, article publication dates), and the dated events in the register record itself (founded, registered, VAT registration, articles, share capital, audit opt-out, bankruptcy or liquidation) and each establishment's start | Enhetsregisteret record, change feeds and establishments; NAV; verified website |
 
 ## How facts stay correct (wrong-company guards)
 
@@ -85,10 +93,12 @@ python3 -m norway_agent run --organisations batch.jsonl --output out/envelopes.j
 2. **Website identity gate.** A site is published as the official website only if one of these holds:
    - it shows this org number on the homepage, contact, about or privacy page, and the page is not a directory listing many org numbers;
    - it was declared for this company by the register (`hjemmeside`) or by the employer homepage on a NAV ad already tied to this org number, **and** the full company name appears in the site's title, headings, footer, © line or structured data (or the domain and the site's brand are both made of the legal name's words). The name appearing in the body text only counts together with the registered phone or email;
-   - it is the domain of the company's own registered email, the domain is the legal name itself (`gangstadbygg.no` for GANGSTAD BYGG AS), and the site names the company;
-   - it is a guessed domain spelled exactly like the legal name (`.no` first, then `.com`; tried when nothing else verified), and it shows the org number (the agent also checks `/kontakt`, `/om-oss` and `/personvern`, where Norwegian sites usually print it) or the name **plus** the registered phone or email.
+   - it is the domain of the company's own registered email, the domain is the legal name itself (`gangstadbygg.no` for GANGSTAD BYGG AS), and the site names the company; or the domain is not the name (an abbreviation such as `arkjv.no`) but the site names the company in its title, headings or footer **and** shows its registered phone or registered street address;
+   - it is a guessed domain spelled like the legal name, or like its distinctive words alone (`kvist.no` for KVIST BYGG AS) (`.no` first, then `.com`; tried when nothing else verified), and it shows the org number (the agent also checks `/kontakt`, `/om-oss` and `/personvern`, where Norwegian sites usually print it) or the full name **plus** the registered phone, email or street address (street, house number and postcode).
 
    An email address at an employer, accountant, property manager or service provider is never treated as the company's website; this came from a live test where such addresses led to the wrong organisation. Parked or placeholder pages, and the domain name merely appearing in the page text, never count. A site showing a **different** org number is never merged: register-declared sites become `ambiguous` (likely a parent, franchise or sister company), and other candidates are discarded.
+
+   **An unproven website is never named anywhere in the output** (v0.2.8): not as a value, not inside a reason, not in a checked-source list, not in the summary. Reasons say *which kind* of candidate was checked and why it failed ("a domain spelled like the legal name does not show this company's organisation number or registered contact details"). The register's own `hjemmeside` is repeated as `registered_website` only when that same site passes the identity check (or exists but robots.txt keeps us out). `validate` reports any unpublished claim that names a web address. Mailto addresses at other domains (web agencies, booking platforms, partners) are not published as the company's contact details.
 3. **Jobs.** A NAV ad is published only if the ad's own `employer.orgnr` is this company, or one of its establishments as confirmed in the register. Same-name employers are rejected and counted. A careers-page `JobPosting` whose `hiringOrganization` names another employer is dropped.
 4. **Numbers.** Values are copied verbatim with currency and period, never converted or rounded. Conflicting filings for one period produce `ambiguous` and nothing is published. A missing currency means nothing is published.
 5. **Evidence.** Every evidence item points to a stored snapshot plus a JSON path, or a verbatim text span. `validate` re-hashes each snapshot and replays every span. On the fixture and real-site replays: 0 problems.

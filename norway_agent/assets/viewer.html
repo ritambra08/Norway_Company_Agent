@@ -129,7 +129,7 @@ select.sort{border:1.5px solid var(--line);background:var(--surface);border-radi
 .up{color:var(--pine)}.down{color:var(--red)}
 .grid{display:grid;grid-template-columns:minmax(0,1fr) 270px;gap:36px;align-items:start}
 .summary{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-m);padding:20px 22px;font-size:16.5px;line-height:1.65;max-width:75ch}
-.summary p{margin:0 0 10px}.summary p:last-child{margin:0}
+.summary p{margin:0 0 10px}.summary p:last-child{margin:0}.summary .sumsrc{font-size:13px;line-height:1.5;color:var(--muted);overflow-wrap:anywhere}
 .chart{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-m);padding:18px 20px;margin:20px 0 0}
 .chart h3{margin:0 0 2px;font-size:16px}.chart .cap{margin:0 0 8px}
 .chart svg{width:100%;height:auto;display:block}
@@ -414,7 +414,9 @@ function company(org){const c=byOrg.get(org);document.title=c.name+' – Signalp
  const emp=fact(c,'registered_employees'),web=fact(c,'official_website'),jobs=fact(c,'job_postings'),ceo=fact(c,'chief_executive');
  const nf='<span class="nf">Not found</span>';
  const h=history(c);const chart=h.length>=2?`<figure class="chart"><h3>Revenue by year</h3><p class="cap">Source: Regnskapsregisteret, filed annual accounts</p>${bars([h],['var(--fjord)'],[c.name])}</figure>`:'';
- const sum=String(c.summary||'').split('\n').filter(Boolean).map(p=>`<p>${esc(p)}</p>`).join('');
+ const ss=(c.summary_sources||[]).filter(x=>x&&x.url);
+ const sum=String(c.summary||'').split('\n').filter(Boolean).map(p=>`<p>${esc(p)}</p>`).join('')
+  +(ss.length?`<p class="sumsrc">Sources: ${ss.map(x=>`[${esc(String(x.n))}] <a href="${esc(x.url)}" target="_blank" rel="noopener noreferrer">${esc(x.name||x.url)}</a>`).join(' · ')}</p>`:'');
  const changes=(c.changes||[]);
  const unknown=SECTIONS.flatMap(s=>s[3]).filter(f=>{const x=fact(c,f);return x&&!ok(x)&&['official_website','job_postings','annual_accounts_latest','social_profiles','registered_employees','leadership'].includes(f)});
  $('#view').innerHTML=`<a class="back" href="#/">All companies</a>

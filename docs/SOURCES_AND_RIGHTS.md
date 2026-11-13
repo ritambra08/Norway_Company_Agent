@@ -7,7 +7,7 @@
 | Brønnøysundregistrene – Enhetsregisteret, `data.brreg.no/enhetsregisteret/api` | Entities (batched by org number), roles, establishments, the entity change feed (`oppdateringer/enheter`) and the role change feed (`oppdateringer/roller`) | Open API, no key, about 8 req/s | NLOD 2.0 | `official_registry` |
 | Brønnøysundregistrene – Regnskapsregisteret, `data.brreg.no/regnskapsregisteret/regnskap/{orgnr}` | Filed annual accounts: every period the open API returns | Open API, no key | NLOD 2.0 | `official_accounts` |
 | NAV job vacancy feed, `pam-stilling-feed.nav.no` | Feed headers for the recent window; ad details only for name-matched candidates, published only when the ad's `employer.orgnr` matches | Official API with bearer token: `NAV_FEED_TOKEN` if set, otherwise NAV's published public token from `/api/publicToken` | [NAV API terms](https://arbeidsplassen.nav.no/vilkar-api). Inactive ads are dropped; contact persons are never stored. | `public_job_feed` |
-| The company's own website | Homepage plus up to 2 contact/about/privacy pages (identity proof), the careers page, the RSS feed or news page | Direct HTTP GET, honest user agent, robots.txt honoured, 1 req/s per host, ≤ 9 pages per company | Company-published pages. Facts are cited with short spans, not republished. | `company_owned` |
+| The company's own website | Homepage plus up to 2 contact/about/privacy pages (identity proof), the careers page and up to 4 of its job pages, the RSS feed or news page and up to 3 of its articles | Direct HTTP GET, honest user agent, robots.txt honoured, 1 req/s per host, ≤ 20 requests per company | Company-published pages. Facts are cited with short spans, not republished. | `company_owned` |
 | Recruitment pages linked from the verified website (Teamtailor, Jobylon, Webcruiter, etc.) | The page the company links to | Same rules as above, with robots.txt checked for that host | Company-published job listings | `company_linked` |
 
 ## Not used (on purpose)
@@ -22,8 +22,8 @@
   1. the register's `hjemmeside`;
   2. the employer homepage on a NAV ad already tied to the org number;
   3. the domain of the registered company email, if it is not a free-mail provider;
-  4. up to 2 `<legal-name>.no` candidates, used only when 1–3 give nothing and only when the domain resolves.
-- **Links followed.** Only same-site links (contact, careers, news), recognised recruitment-platform hosts linked from the verified site, and RSS/Atom links in the site's own `<head>`.
+  4. up to 4 domains spelled like the legal name or its distinctive words (`.no`, then `.com`), used only when 1–3 give nothing and only when the domain resolves.
+- **Links followed.** Only same-site links (contact, careers, news, and up to 3 articles on the site's own news list), recognised recruitment-platform hosts linked from the verified site, and RSS/Atom links in the site's own `<head>`. When the static menu links no careers or news page, a few common paths on the verified site are tried (`/karriere`, `/ledige-stillinger`, `/jobb`; `/nyheter`, `/aktuelt`, `/news`, `/blogg`); a page counts only if it really exists there and calls itself that section.
 - **robots.txt.** It is fetched and honoured for every host before any page:
   - 401/403 counts as a block;
   - 5xx or unreachable means the site is not crawled and the fetch is reported as failed;

@@ -15,6 +15,7 @@ from urllib.parse import urlsplit
 
 from .claims import Builder, canon, jpath_get
 from .state import CompanyState, SourceStatus
+from .web import ORIGIN_TEXT, attempt_note, attempt_why, normalize_site, registrable, scrub_addresses
 
 FIN = [
     ("revenue", "resultatregnskapResultat.driftsresultat.driftsinntekter.sumDriftsinntekter"),
@@ -25,6 +26,24 @@ FIN = [
     ("equity", "egenkapitalGjeld.egenkapital.sumEgenkapital"),
     ("total_liabilities", "egenkapitalGjeld.gjeldOversikt.sumGjeld"),
     ("personnel_costs", "resultatregnskapResultat.driftsresultat.driftskostnad.loennskostnad"),
+]
+# More line items from the same filed accounts (exact copies, every year the API returns). They are
+# published only when the filing reports them; a missing line is never shown as zero.
+FIN_MORE = [
+    ("sales_revenue", "resultatregnskapResultat.driftsresultat.driftsinntekter.salgsinntekter"),
+    ("total_operating_costs", "resultatregnskapResultat.driftsresultat.driftskostnad.sumDriftskostnad"),
+    ("net_financial_items", "resultatregnskapResultat.finansresultat.nettoFinans"),
+    ("financial_income", "resultatregnskapResultat.finansresultat.finansinntekt.sumFinansinntekter"),
+    ("financial_costs", "resultatregnskapResultat.finansresultat.finanskostnad.sumFinanskostnad"),
+    ("tax_expense", "resultatregnskapResultat.ordinaertResultatSkattekostnad"),
+    ("fixed_assets", "eiendeler.anleggsmidler.sumAnleggsmidler"),
+    ("current_assets", "eiendeler.omloepsmidler.sumOmloepsmidler"),
+    ("receivables", "eiendeler.sumFordringer"),
+    ("paid_in_equity", "egenkapitalGjeld.egenkapital.innskuttEgenkapital.sumInnskuttEgenkaptial"),
+    ("retained_earnings", "egenkapitalGjeld.egenkapital.opptjentEgenkapital.sumOpptjentEgenkapital"),
+    ("short_term_liabilities", "egenkapitalGjeld.gjeldOversikt.kortsiktigGjeld.sumKortsiktigGjeld"),
+    ("long_term_liabilities", "egenkapitalGjeld.gjeldOversikt.langsiktigGjeld.sumLangsiktigGjeld"),
+    ("total_equity_and_liabilities", "egenkapitalGjeld.sumEgenkapitalGjeld"),
 ]
 TYPE_RANK = {"SELSKAP": 0, "KONSERN": 1}
 
@@ -96,6 +115,35 @@ def _raw_span(resp, needle: str, pad: int = 50) -> str | None:
 # ---------------------------------------------------------------------------------------------
 
 BRREG = "https://data.brreg.no/enhetsregisteret/api"
+
+
+def _registered_site_tied(s: CompanyState) -> tuple[bool, str]:
+    """Is the website the register declares tied to this company by what the site itself shows?
+    The register field is the company's own declaration, but domains lapse and get taken over, so the
+    address is repeated only when the identity check passed for that same domain (or the site exists but
+    robots.txt keeps us out)."""
+    reg = normalize_site(s.body().get("hjemmeside") or "")
+    if not reg:
+        return False, "the declared value is not a usable web address"
+    reg_dom = registrable(urlsplit(reg).hostname or "")
+    v = (s.web or {}).get("verified")
+    if v:
+        homes = {registrable(urlsplit(x).hostname or "") for x in (v.get("candidate") or "", v["home"].final_url)}
+        if reg_dom in homes:
+            return True, "the same site passed the identity check (see official_website)."
+    for a in (s.web or {}).get("attempts") or []:
+        if a.get("origin") == "registry":
+            if a.get("verdict") == "blocked":
+                return True, "the site exists but robots.txt keeps our crawler out, so it was not read."
+            if a.get("verdict") in ("failed",):
+                return False, "the declared website could not be read in this run"
+            if a.get("verdict") == "not_checked":
+                return False, "the declared website could not be checked before the run budget was reached"
+            return False, "the site " + attempt_why(a)
+    st = s.status.get("website")
+    if st is None or st.state == "not_checked":
+        return False, "the declared website was not checked in this run"
+    return False, "the site could not be tied to this company by its organisation number or name"
 
 
 def record_url(s: CompanyState) -> str:
@@ -189,8 +237,14 @@ def _identity(b: Builder, s: CompanyState) -> None:
     if _has(body.get("sisteInnsendteAarsregnskap")):
         b.put("latest_filed_accounts_year", body["sisteInnsendteAarsregnskap"], ev("sisteInnsendteAarsregnskap"))
     if _has(body.get("hjemmeside")):
-        b.put("registered_website", body["hjemmeside"], ev("hjemmeside"),
-              note="As declared to the register; see official_website for the verification result.")
+        ok, why = _registered_site_tied(s)
+        if ok:
+            b.put("registered_website", body["hjemmeside"], ev("hjemmeside"),
+                  note="As declared to the register; " + why)
+        else:
+            b.absent("registered_website", "failed" if ("could not" in why or "not checked" in why) else "ambiguous",
+                     "The register declares a website for this company, but " + why +
+                     ", so the address is not published.")
     else:
         b.absent("registered_website", "not_available", "No website is declared in Enhetsregisteret.")
     contact = {k: body[src] for k, src in (("email", "epostadresse"), ("phone", "telefon"), ("mobile", "mobil"))
@@ -214,7 +268,7 @@ def _identity(b: Builder, s: CompanyState) -> None:
 def _financials(b: Builder, s: CompanyState) -> None:
     fields = ["annual_accounts_latest", "revenue", "operating_result", "profit_before_tax", "net_result",
               "total_assets", "equity", "total_liabilities", "personnel_costs", "annual_accounts_history",
-              "revenue_change"]
+              "revenue_change"] + [f for f, _ in FIN_MORE]
     st = s.status.get("accounts")
     f = s.accounts
     if f is None or st is None or st.state != "checked":
@@ -287,6 +341,17 @@ def _financials(b: Builder, s: CompanyState) -> None:
                   note=group_note + "Copied unchanged from the filed annual accounts; no conversion or rounding.")
         else:
             b.absent(fld, "not_available", f"Not reported in the open accounts record for the period ending {rp['end']}.")
+    for fld, path in FIN_MORE:
+        v = jpath_get(e, path)
+        if _num(v):
+            eid = b.ev_json(f.resp, f"{pre}.{path}", "official_accounts", rp)
+            figures[fld] = v
+            fig_ev.append(eid)
+            b.put(fld, {"amount": v, "currency": cur, "period_start": rp["start"], "period_end": rp["end"],
+                        "accounts_type": atype}, [eid] + base_ev, reporting_period=rp,
+                  note=group_note + "Copied unchanged from the filed annual accounts; no conversion or rounding.")
+        else:
+            b.absent(fld, "not_available", f"Not reported in the open accounts record for the period ending {rp['end']}.")
     rules = jpath_get(e, "regnkapsprinsipper") or {}
     rev = e.get("revisjon") or {}
     latest = {"period_start": rp["start"], "period_end": rp["end"], "currency": cur, "accounts_type": atype,
@@ -302,7 +367,7 @@ def _financials(b: Builder, s: CompanyState) -> None:
         row = {"period_start": per2.get("fraDato"), "period_end": end, "currency": e2.get("valuta"),
                "accounts_type": e2.get("regnskapstype")}
         rp2 = {"start": per2.get("fraDato"), "end": end}
-        for fld, path in FIN[:7]:
+        for fld, path in FIN + FIN_MORE:
             v = jpath_get(e2, path)
             if _num(v):
                 row[fld] = v
@@ -434,6 +499,18 @@ def _locations(b: Builder, s: CompanyState) -> None:
 
 
 EVENT_CAP = 15
+RECORD_EVENTS = [
+    ("stiftelsesdato", "founded", "Founded (date of incorporation)"),
+    ("registreringsdatoEnhetsregisteret", "registered", "Registered in the Central Coordinating Register for Legal Entities"),
+    ("registreringsdatoForetaksregisteret", "registered", "Registered in the Register of Business Enterprises"),
+    ("registreringsdatoMerverdiavgiftsregisteret", "vat_registered", "Registered in the VAT register"),
+    ("vedtektsdato", "articles", "Articles of association dated"),
+    ("kapital.innfortDato", "capital", "Share capital registered"),
+    ("fravalgRevisjonDato", "audit_opt_out", "Opt-out from statutory audit registered"),
+    ("konkursdato", "bankruptcy", "Bankruptcy registered"),
+    ("underAvviklingDato", "liquidation", "Liquidation registered"),
+    ("slettedato", "deleted", "Deleted from the register"),
+]
 
 
 def _activity(b: Builder, s: CompanyState, window_days: int) -> list[dict]:
@@ -508,6 +585,39 @@ def _activity(b: Builder, s: CompanyState, window_days: int) -> list[dict]:
                              "source": "Enhetsregisteret",
                              "evidence_ids": [b.ev_json(rec.resp, _p(rec.path, f"historiskeNavn[{j}]"),
                                                         source_url=record_url(s))]})
+    # Dated facts in the register record itself (registration, VAT, articles, capital, insolvency) and the
+    # registration of each establishment: dated public events every registered entity has, each cited to
+    # the exact field. They are history, not news, and sort after anything newer.
+    body = s.body()
+    if rec is not None:
+        for key, kind, title in RECORD_EVENTS:
+            d = jpath_get(body, key)
+            if isinstance(d, str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}", d[:10]) and d[:4] >= "1900":
+                if key == "kapital.innfortDato":
+                    cap = body.get("kapital") or {}
+                    if _num(cap.get("belop")):
+                        title = f"Share capital of {cap.get('valuta') or 'NOK'} {cap['belop']:,.0f} registered".replace(",", " ")
+                timeline.append({"date": d[:10], "kind": kind, "title": title, "source": "Enhetsregisteret",
+                                 "evidence_ids": [b.ev_json(rec.resp, _p(rec.path, key), source_url=record_url(s))]})
+    if s.subunits is not None and isinstance(s.subunits.data, dict):
+        raw = ((s.subunits.data.get("_embedded") or {}).get("underenheter") or [])
+        est = []
+        for i, u in enumerate(raw):
+            if not isinstance(u, dict) or u.get("overordnetEnhet") != s.orgnr:
+                continue
+            d = u.get("oppstartsdato") or u.get("registreringsdatoEnhetsregisteret") or ""
+            key = "oppstartsdato" if u.get("oppstartsdato") else "registreringsdatoEnhetsregisteret"
+            if re.fullmatch(r"\d{4}-\d{2}-\d{2}", d[:10]) and u.get("navn"):
+                city = ((u.get("beliggenhetsadresse") or {}).get("poststed") or "").title()
+                est.append((d[:10], i, key, u["navn"], city))
+        for d, i, key, nm, city in sorted(est, reverse=True)[:5]:
+            timeline.append({"date": d, "kind": "establishment_opened",
+                             "title": f"Establishment {nm} started" + (f" in {city}" if city else ""),
+                             "source": "Enhetsregisteret",
+                             "evidence_ids": [b.ev_json(s.subunits.resp, f"_embedded.underenheter[{i}].{key}",
+                                                        source_url=f"{BRREG}/underenheter?overordnetEnhet={s.orgnr}"),
+                                              b.ev_json(s.subunits.resp, f"_embedded.underenheter[{i}].navn",
+                                                        source_url=f"{BRREG}/underenheter?overordnetEnhet={s.orgnr}")]})
     return timeline
 
 
@@ -526,12 +636,10 @@ def _web(b: Builder, s: CompanyState, timeline: list[dict]) -> None:
             av, reason = "not_available", f"No official website found: {st.detail}"
         else:
             av, reason = _status_reason(st, "Official website")
-        val = None
-        if av == "ambiguous":
-            val = [a.get("candidate") for a in w.get("attempts", []) if a.get("verdict") in ("other_entity", "unconfirmed")]
-        b.absent("official_website", av, reason, value=val,
-                 checked_sources=[{"candidate": a.get("candidate"), "origin": a.get("origin"),
-                                   "outcome": a.get("verdict"), "detail": a.get("detail")}
+        # No candidate address is named here: an unproven website is not a fact about this company.
+        b.absent("official_website", av, scrub_addresses(reason),
+                 checked_sources=[{"candidate": ORIGIN_TEXT.get(a.get("origin"), "candidate website"),
+                                   "outcome": a.get("verdict"), "detail": attempt_note(a)}
                                   for a in w.get("attempts", [])] or None)
         derived = "not_available" if av in ("not_available", "ambiguous") else av
         for fld in no_site_fields:
@@ -626,10 +734,16 @@ def _web(b: Builder, s: CompanyState, timeline: list[dict]) -> None:
         if not sp:
             continue
         eid = b.ev_text(n["page"], sp, n["method"])
+        ids_n = [eid]
+        if n.get("date_needle"):
+            dsp = _raw_span(n["page"], n["date_needle"])
+            if not dsp:
+                continue
+            ids_n.append(b.ev_text(n["page"], dsp, "publication date on the article page"))
         news.append({"date": n["date"], "title": n["title"], "url": n["url"]})
-        nids.append(eid)
+        nids.extend(ids_n)
         timeline.append({"date": n["date"], "kind": "website_news", "title": n["title"], "url": n["url"],
-                         "source": "Official website", "evidence_ids": [eid]})
+                         "source": "Official website", "evidence_ids": ids_n})
     if news:
         b.put("website_news", news, nids, confidence=0.88,
               note="Dated items published on the company's verified website (company-reported).")

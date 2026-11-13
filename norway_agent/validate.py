@@ -8,15 +8,40 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from pathlib import Path
 
 from . import jsonl
 from .claims import STATES, canon, jpath_get
 from .inputs import read_batch
 from .snapshots import read_snapshot
+from .web import ADDRESS
+
+# Hosts that may be named in a reason (the official sources themselves).
+SOURCE_HOSTS = re.compile(r"(^|\.)(brreg\.no|nav\.no|finn\.no)$", re.I)
+
+
+def _host(text: str) -> str:
+    return re.sub(r"^(https?://)?(www\.)?", "", (text or "").lower()).split("/")[0]
+
+
+def unproven_addresses(c: dict, published: set[str] = frozenset()) -> list[str]:
+    """Web addresses named in a claim that is NOT published (reason, value, checked sources). Such a
+    claim must not name a website other than the one published as official: an address there reads as a
+    claim about the company."""
+    blob = canon({k: c.get(k) for k in ("reason", "value", "checked_sources")})
+    out = []
+    for m in ADDRESS.finditer(blob):
+        host = _host(m.group(0))
+        if not SOURCE_HOSTS.search(host) and host not in published:
+            out.append(host)
+    return out
 
 FIN_FIELDS = {"revenue", "operating_result", "profit_before_tax", "net_result", "total_assets", "equity",
-              "total_liabilities", "personnel_costs"}
+              "total_liabilities", "personnel_costs", "sales_revenue", "total_operating_costs", "net_financial_items",
+              "financial_income", "financial_costs", "tax_expense", "fixed_assets", "current_assets", "receivables",
+              "paid_in_equity", "retained_earnings", "short_term_liabilities", "long_term_liabilities",
+              "total_equity_and_liabilities"}
 
 
 def validate(envelopes_path: Path, batch_path: str | None = None) -> tuple[int, list[str], dict]:
@@ -39,6 +64,9 @@ def validate(envelopes_path: Path, batch_path: str | None = None) -> tuple[int, 
         if (env.get("run") or {}).get("terminal_status") not in ("completed", "partial", "failed"):
             problems.append(f"{o}: invalid terminal_status")
         ev = {e["id"]: e for e in env.get("evidence") or []}
+        site = next((c.get("value") for c in env.get("claims") or [] if c.get("field") == "official_website"
+                     and c.get("availability") == "available"), None) or {}
+        published = {_host(site.get("url", "")), _host(site.get("final_url", ""))} - {""}
         cache: dict[str, bytes | None] = {}
         for c in env.get("claims") or []:
             stats["claims"] += 1
@@ -48,6 +76,9 @@ def validate(envelopes_path: Path, batch_path: str | None = None) -> tuple[int, 
             if c["availability"] != "available":
                 if not c.get("reason"):
                     problems.append(f"{o}/{c['field']}: {c['availability']} without a reason")
+                leaked = unproven_addresses(c, published)
+                if leaked:
+                    problems.append(f"{o}/{c['field']}: unpublished claim names a web address ({leaked[0]})")
                 continue
             stats["available_claims"] += 1
             if c.get("value") is None:

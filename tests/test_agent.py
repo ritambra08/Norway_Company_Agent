@@ -153,18 +153,27 @@ class ContractTest(unittest.TestCase):
         self.assertIn("https://www.youtube.com/@fjordtech", urls)
         self.assertFalse(any("sharer" in u or "intent" in u for u in urls))
         self.assertFalse(any(u.endswith("/wix") or "webbyraaet" in u for u in urls))  # builder / agency links
+        emails = claim(self.envs[fx.A], "website_contact")["value"]["emails"]
+        self.assertIn("post@fjordtech.example", emails)
+        self.assertNotIn("hei@webbyraaet.example", emails)  # the web agency's address is not the company's
 
     def test_parent_site_is_ambiguous_not_merged(self):
         c = self.envs[fx.C]
         w = claim(c, "official_website")
         self.assertEqual(w["availability"], "ambiguous")
-        self.assertIn(fx.PARENT_C, w["reason"])
+        self.assertIn("different organisation number", w["reason"])
+        self.assertIsNone(w["value"])  # the parent's site is not named as a value
+        self.assertNotIn("bergenbygg", json.dumps(c).lower().replace("-", ""))  # nor anywhere in the envelope
+        self.assertNotEqual(claim(c, "registered_website")["availability"], "available")
         self.assertTrue(c["abstentions"])
 
     def test_guessed_namesake_site_is_discarded(self):
         b = self.envs[fx.B]
         self.assertEqual(claim(b, "official_website")["availability"], "not_available")
         self.assertNotIn("nordlysholding", json.dumps(claim(b, "social_profiles")))
+        # The rejected guess is not named anywhere: not in a reason, a checked source or the summary.
+        self.assertNotIn("nordlysholding", json.dumps(b).lower())
+        self.assertIn("domain spelled like the legal name", claim(b, "official_website")["reason"])
 
     def test_email_domain_of_employer_is_never_published(self):
         h = self.envs[fx.H]
@@ -254,6 +263,45 @@ class ContractTest(unittest.TestCase):
         self.assertIn("Hiring", s["text"])
         self.assertIn("First profile", s["what_changed"])
         self.assertIn("legal_name", s["based_on_fields"])
+
+    def test_more_financial_lines_copied_never_invented(self):
+        a = self.envs[fx.A]
+        self.assertEqual(claim(a, "sales_revenue")["value"]["amount"], 14999000.0)
+        self.assertEqual(claim(a, "tax_expense")["value"]["amount"], 240000.0)
+        self.assertEqual(claim(a, "net_financial_items")["value"]["amount"], 0.0)  # a reported zero is a value
+        self.assertEqual(claim(a, "financial_income")["availability"], "not_available")  # empty: never zero
+        hist = claim(a, "annual_accounts_history")["value"]
+        self.assertTrue(all("sales_revenue" in row for row in hist))
+        self.assertTrue(all("financial_income" not in row for row in hist))
+
+    def test_register_dates_are_dated_public_activity(self):
+        pa = claim(self.envs[fx.A], "public_activity")
+        kinds = {x["kind"] for x in pa["value"]}
+        self.assertTrue({"founded", "registered", "vat_registered", "establishment_opened"} <= kinds)
+        self.assertIn("Establishment FJORDTECH AVD OSLO started in Oslo", [x["title"] for x in pa["value"]])
+        e = claim(self.envs[fx.E], "public_activity")  # a sole proprietorship with no changes still has history
+        self.assertEqual(e["availability"], "available")
+
+    def test_summary_cites_its_sources(self):
+        s = self.envs[fx.A]["summary"]
+        ev = {e["id"]: e for e in self.envs[fx.A]["evidence"]}
+        nums = {x["n"]: x for x in s["sources"]}
+        self.assertTrue(nums and all(x["url"] and x["retrieved_at"] for x in nums.values()))
+        for st in s["statements"]:
+            for i in st["evidence_ids"]:
+                self.assertIn(i, ev)
+            for n in st["sources"]:
+                self.assertIn(n, nums)
+        first = s["statements"][0]
+        self.assertEqual(first["section"], "what_it_does")
+        self.assertTrue(first["sources"])
+        self.assertIn(f"[{first['sources'][0]}", s["text"].splitlines()[0])
+        self.assertTrue(nums[first["sources"][0]]["url"].startswith("https://data.brreg.no/"))
+        self.assertNotIn("[", s["plain_text"].splitlines()[0])  # the display text has no markers
+        # what changed: the dated name change from the register, with its source
+        self.assertIn("changed its registered name from FJORD SOFTWARE AS to FJORDTECH AS", s["what_changed"])
+        b = self.envs[fx.B]["summary"]
+        self.assertIn("official website (no website could be tied", b["text"])
 
     def test_viewer_is_self_contained_and_rebuildable(self):
         from norway_agent.cli import main
@@ -511,12 +559,123 @@ class DerivedFactsTest(unittest.TestCase):
         self.assertEqual(problems, [])
 
 
+class AddressProofTest(unittest.TestCase):
+    """A site may be tied to the company by its registered street address (with house number) and postcode."""
+
+    def test_patterns(self):
+        from norway_agent.web import _address_on, _address_patterns
+        pats = _address_patterns({"forretningsadresse": {"adresse": ["Stabells gate 13"], "postnummer": "3510"}})
+        for ok in ("Stabells gate 13, 3510 Hønefoss", "Stabellsgate 13<br>3510 HØNEFOSS", "stabells gt. 13 - 3510"):
+            self.assertTrue(_address_on(ok, pats), ok)
+        for bad in ("Stabells gate 131, 3510 Hønefoss", "Stabells gate 13, 3511 Hønefoss", "Tinley Park, IL 60477"):
+            self.assertFalse(_address_on(bad, pats), bad)
+        self.assertEqual(_address_patterns({"forretningsadresse": {"adresse": ["Postboks"], "postnummer": "0101"}}), [])
+
+    def _run_with_guess_page(self, html):
+        class GuessNet(fx.FakeInternet):
+            def web(self, url, host, path):
+                if host in ("nordlysholding.no", "www.nordlysholding.no"):
+                    return self.h("", 404) if path == "/robots.txt" else self.h(html)
+                return super().web(url, host, path)
+        tmp = Path(tempfile.mkdtemp())
+        _, envs, _ = do_run(tmp, net=GuessNet())
+        n, problems, _ = validate(tmp / "out" / "envelopes.jsonl")
+        self.assertEqual(problems, [])
+        return envs[fx.B]
+
+    def test_guessed_site_with_name_and_registered_address_is_verified(self):
+        b = self._run_with_guess_page("""<html><head><title>Nordlys Holding</title></head><body><h1>Nordlys Holding</h1>
+        <footer>Nordlys Holding AS, Bryggen 1, 5003 Bergen</footer></body></html>""")
+        site = claim(b, "official_website")
+        self.assertEqual(site["availability"], "available")
+        self.assertEqual(site["value"]["verification"], "name_guess+name_and_registered_contact_on_site")
+        ev = {e["id"]: e for e in b["evidence"]}
+        self.assertTrue(any("Bryggen 1" in ev[i]["claim_span"] for i in site["evidence_ids"]))
+
+    def test_namesake_at_another_address_is_not_verified(self):
+        b = self._run_with_guess_page("""<html><head><title>Nordlys Holding</title></head><body><h1>Nordlys Holding</h1>
+        <footer>Nordlys Holding AS, Bryggen 12, 5003 Bergen</footer></body></html>""")
+        self.assertEqual(claim(b, "official_website")["availability"], "not_available")
+        self.assertNotIn("nordlysholding", json.dumps(b).lower())
+
+
+class SectionProbeTest(unittest.TestCase):
+    """Careers and news pages found at common paths when the homepage menu does not link them."""
+
+    @staticmethod
+    def _net(pages, soft404=False):
+        home = "<html><head><title>Glimt</title></head><body><h1>Data og analyse</h1></body></html>"
+
+        class SectionNet(fx.FakeInternet):
+            def web(self, url, host, path):
+                if host in ("glimtanalyse.com", "www.glimtanalyse.com"):
+                    if path == "/kontakt":
+                        return self.h(f"<html><body>Glimt Analyse AS · Org.nr. {fx.fmt(fx.M)} · Oslo</body></html>")
+                    if path in pages:
+                        return self.h(pages[path])
+                    if path == "/" or (soft404 and path != "/robots.txt"):
+                        return self.h(home)
+                    return self.h("not found", 404)
+                return super().web(url, host, path)
+        return SectionNet()
+
+    def test_probed_careers_and_news_with_article_dates(self):
+        d1, d2 = fx.DAYS(20), fx.DAYS(90)
+        art = lambda title, d: (f'<html><head><meta property="og:title" content="{title}">'  # noqa: E731
+                                f'<meta property="article:published_time" content="{d}T08:00:00+00:00">'
+                                f'<meta property="article:modified_time" content="{fx.DAYS(1)}T08:00:00+00:00">'
+                                f'</head><body><article><h1>{title}</h1><p>Tekst.</p></article></body></html>')
+        pages = {
+            "/karriere": """<html><head><title>Karriere | Glimt</title></head><body><h1>Jobb hos oss</h1>
+                <a href="/karriere/dataanalytiker-heltid">Dataanalytiker (heltid)</a>
+                <a href="/karriere/mot-kari-prosjektleder">Møt Kari, prosjektleder</a>
+                <a href="/karriere/radgiver-heltid-2024">Rådgiver (heltid)</a></body></html>""",
+            "/karriere/dataanalytiker-heltid": """<html><body><h1>Dataanalytiker (heltid)</h1>
+                <p>Arbeidssted: Oslo. Søknadsfrist: snarest.</p></body></html>""",
+            "/karriere/mot-kari-prosjektleder": """<html><body><h1>Møt Kari</h1><p>Kari har jobbet her i fem år.</p>
+                </body></html>""",
+            "/karriere/radgiver-heltid-2024": """<html><head><script type="application/ld+json">{"@type":"JobPosting",
+                "title":"Rådgiver","datePosted":"2024-01-02","validThrough":"2024-02-01",
+                "hiringOrganization":{"@type":"Organization","name":"Glimt Analyse AS"}}</script></head>
+                <body><h1>Rådgiver (heltid)</h1></body></html>""",
+            "/nyheter": """<html><head><title>Nyheter | Glimt</title></head><body><h1>Nyheter</h1>
+                <a href="/nyheter/ny-avtale-med-fylket">Ny avtale med fylket</a>
+                <a href="/nyheter/vi-flytter-til-bjorvika">Vi flytter til Bjørvika</a>
+                <a href="/nyheter/page/2">Eldre</a></body></html>""",
+            "/nyheter/ny-avtale-med-fylket": art("Ny avtale med fylket", d1),
+            "/nyheter/vi-flytter-til-bjorvika": art("Vi flytter til Bjørvika", d2),
+        }
+        tmp = Path(tempfile.mkdtemp())
+        _, envs, _ = do_run(tmp, net=self._net(pages))
+        m = envs[fx.M]
+        self.assertEqual(claim(m, "official_website")["availability"], "available")
+        news = claim(m, "website_news")
+        self.assertEqual(news["availability"], "available")
+        self.assertEqual({(n["date"], n["title"]) for n in news["value"]},
+                         {(d1, "Ny avtale med fylket"), (d2, "Vi flytter til Bjørvika")})  # published, not modified
+        self.assertEqual(claim(m, "careers_page")["availability"], "available")
+        titles = [j["title"] for j in claim(m, "job_postings")["value"]]
+        self.assertIn("Dataanalytiker (heltid)", titles)
+        self.assertNotIn("Møt Kari, prosjektleder", titles)  # a staff story, not a posting
+        self.assertNotIn("Rådgiver (heltid)", titles)  # its JobPosting data says it closed in 2024
+        n, problems, _ = validate(tmp / "out" / "envelopes.jsonl")
+        self.assertEqual(problems, [])
+
+    def test_soft_404_is_not_a_section(self):
+        tmp = Path(tempfile.mkdtemp())
+        _, envs, _ = do_run(tmp, net=self._net({}, soft404=True))
+        m = envs[fx.M]
+        self.assertEqual(claim(m, "official_website")["availability"], "available")
+        self.assertNotEqual(claim(m, "careers_page")["availability"], "available")
+        self.assertNotEqual(claim(m, "website_news")["availability"], "available")
+
+
 class SiteDataTest(unittest.TestCase):
     """profiles.jsonl (read by the JBOX site) gets plain-English display text, with every key, list
     length and number unchanged, so a site reading the old shape keeps working."""
 
     def test_site_card_changes_display_text_only(self):
-        from norway_agent.viewer import card, site_card
+        from norway_agent.viewer import _nice_dates, card, site_card
         tmp = Path(tempfile.mkdtemp())
         _, envs, _ = do_run(tmp)
 
@@ -537,6 +696,8 @@ class SiteDataTest(unittest.TestCase):
             for k in raw:
                 if k not in ("facts", "summary"):
                     self.assertEqual(raw[k], pub[k], k)
+            if raw.get("summary_plain"):
+                self.assertEqual(pub["summary"], _nice_dates(raw["summary_plain"]))
             for f, x in raw["facts"].items():
                 y = pub["facts"][f]
                 for k in ("label", "state", "ev", "note", "stale", "reason"):

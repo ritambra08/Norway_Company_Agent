@@ -16,7 +16,7 @@
 Subject: `Signalpost Round 1 submission – revision`
 
 ```
-Agent name: Norway Company Agent (Signalpost) v0.2.7
+Agent name: Norway Company Agent (Signalpost) v0.2.8
 Repository URL: https://github.com/ritambra08/Norway_Company_Agent
 Exact commit hash: <git rev-parse HEAD>
 100-company smoke-test result: submission/run-report.json, submission/validate.txt, submission/envelopes.jsonl.gz, submission/index.html (in the repository at that commit)
@@ -35,7 +35,8 @@ Time budget: the agent always writes one envelope per input before its own deadl
   60 s reserved for writing). If your run budget is shorter, set SIGNALPOST_DEADLINE_SECONDS to a little under it
   (for example 1500 for a 30-minute budget); the agent then stops collecting early and still returns every envelope,
   marking unchecked sources "not_checked" rather than dropping companies.
-UI: offline viewer out/index.html; Signalpost site built with JBOX (JBOX bonus entry): <JBOX site URL>
+UI (find, compare, verify on desktop and mobile): live site https://jbox-view-signalpost.vercel.app/ (JBOX bonus entry);
+  built-in viewer written by every run to <out>/index.html (smoke test: https://ritambra08.github.io/Norway_Company_Agent/submission/)
 Contact for results: <name, email>
 ```
 
